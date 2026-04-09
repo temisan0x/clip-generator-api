@@ -1,8 +1,9 @@
-import express from "express";
+import { Router } from "express";
 
-function uploadRouter() {
+const uploadRouter = Router();
 
+uploadRouter.post("/upload", (req, res) => {
+  res.json({ message: "Upload route is alive" });
+});
 
-}
-
-export { uploadRouter };
+export default uploadRouter;
