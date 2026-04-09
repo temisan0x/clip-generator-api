@@ -1,5 +1,8 @@
 import type { Request, Response } from "express";
 import { uploadToCloudinary } from "../services/cloudinary";
+import { transcribeMedia } from "../services/transcribe";
+import { selectClips } from "../services/aiSelector";
+import { v4 as uuidv4 } from "uuid";
 
 function createClipController() {
   const uploadFile = async (req: Request, res: Response) => {
@@ -16,26 +19,35 @@ function createClipController() {
         return;
       }
 
+      // step 1 — upload to cloudinary
       const uploaded = await uploadToCloudinary(req.file.path);
 
+      // step 2 — transcribe
+      const fileName = `${uuidv4()}.mp4`;
+      const transcript = await transcribeMedia(uploaded.url, fileName);
+
+      // step 3 — ai clip selection
+      const selectedClips = await selectClips(transcript, prompt, ratio || "16:9");
+
       res.status(200).json({
-        message: "File uploaded successfully",
+        message: "File processed successfully",
         file: uploaded,
         prompt,
         ratio: ratio || "16:9",
+        transcript,
+        selectedClips,
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("Full error:", error);
+      res.status(500).json({ error: error.message || JSON.stringify(error) });
     }
   };
 
   const getJobStatus = async (req: Request, res: Response) => {
-    // Phase 2 — job queue
     res.status(200).json({ jobId: req.params.id, status: "pending" });
   };
 
   const getClips = async (req: Request, res: Response) => {
-    // Phase 2 — return generated clips
     res.status(200).json({ jobId: req.params.id, clips: [] });
   };
 

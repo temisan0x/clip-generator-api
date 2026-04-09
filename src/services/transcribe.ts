@@ -2,7 +2,7 @@ import { createPartFromUri, createUserContent } from "@google/genai";
 import fs from "fs";
 import path from "path";
 import https from "https";
-import ai from "../config/gemini";
+import getGeminiClient from "../config/gemini";
 
 // download cloudinary file to temp folder
 const downloadFile = (url: string, destPath: string): Promise<void> => {
@@ -37,16 +37,16 @@ export const transcribeMedia = async (
   await downloadFile(cloudinaryUrl, tempPath);
 
   // upload to gemini file api
-  const uploadedFile = await ai.files.upload({
+  const uploadedFile = await getGeminiClient().files.upload({
     file: tempPath,
     config: { mimeType: "video/mp4" },
   });
 
   // wait for gemini to process the file
-  let geminiFile = await ai.files.get({ name: uploadedFile.name! });
+  let geminiFile = await getGeminiClient().files.get({ name: uploadedFile.name! });
   while (geminiFile.state === "PROCESSING") {
     await new Promise((r) => setTimeout(r, 3000));
-    geminiFile = await ai.files.get({ name: uploadedFile.name! });
+    geminiFile = await getGeminiClient().files.get({ name: uploadedFile.name! });
   }
 
   if (geminiFile.state === "FAILED") {
@@ -54,8 +54,8 @@ export const transcribeMedia = async (
   }
 
   // ask gemini for a timestamped transcript
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-04-17",
+  const response = await getGeminiClient().models.generateContent({
+    model: "gemini-2.5-flash",
     contents: createUserContent([
       createPartFromUri(geminiFile.uri!, geminiFile.mimeType!),
       `Transcribe this media file. Return ONLY a JSON array, no markdown, no explanation.
