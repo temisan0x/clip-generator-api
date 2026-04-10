@@ -13,6 +13,7 @@ interface ClipOutput {
   localPath: string;
   fileName: string;
   duration: number;
+  url?: string;
 }
 
 const RATIO_FILTERS: Record<string, string> = {
@@ -27,7 +28,7 @@ const cutClip = (
   outputPath: string,
   start: number,
   duration: number,
-  ratio: string
+  ratio: string,
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
     const filter = RATIO_FILTERS[ratio] ?? RATIO_FILTERS["16:9"];
@@ -36,9 +37,18 @@ const cutClip = (
       .setStartTime(start)
       .setDuration(duration)
       .videoFilters(filter)
+      .audioCodec("aac")
+      .videoCodec("libx264")
+      .outputOptions([
+        "-preset fast", // faster encoding
+        "-crf 23", // good quality/size balance
+      ])
       .output(outputPath)
       .on("end", () => resolve())
-      .on("error", (err) => reject(err))
+      .on("error", (err: Error) => {
+        console.error("FFmpeg Error:", err.message);
+        reject(err);
+      })
       .run();
   });
 };
@@ -46,29 +56,35 @@ const cutClip = (
 export const generateClips = async (
   inputPath: string,
   clips: SelectedClip[],
-  ratio: string
+  ratio: string,
 ): Promise<ClipOutput[]> => {
-  const outputDir = path.join(__dirname, "../../temp/clips");
+  const outputDir = path.join(process.cwd(), "temp", "clips");
 
   // create output dir if it doesn't exist
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
 
   const results: ClipOutput[] = [];
 
-  for (const clip of clips) {
-    const duration = clip.end - clip.start;
-    if (duration <= 0) continue;
+  for (const [index, clip] of clips.entries()) {
+    const clipDuration = clip.end - clip.start;
+    if (clipDuration <= 0) continue;
 
-    const fileName = `clip-${uuidv4()}.mp4`;
+    const fileName = `clip-${Date.now()}-${index}-${uuidv4().slice(0, 8)}.mp4`;
     const outputPath = path.join(outputDir, fileName);
 
-    await cutClip(inputPath, outputPath, clip.start, duration, ratio);
+    try {
+      await cutClip(inputPath, outputPath, clip.start, clipDuration, ratio);
 
-    results.push({
-      localPath: outputPath,
-      fileName,
-      duration,
-    });
+      results.push({
+        localPath: outputPath,
+        fileName,
+        duration: clipDuration,
+      });
+    } catch (err) {
+      console.error(`Failed to generate clip ${index}:`, err);
+    }
   }
 
   return results;

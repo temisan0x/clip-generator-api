@@ -66,11 +66,14 @@ function createClipController() {
             "auto",
             "clip-generator/clips",
           );
+          //delete local file after upload
+          if (fs.existsSync(clip.localPath)) fs.unlinkSync(clip.localPath);
+
           return {
             url: result.url,
             duration: clip.duration,
             publicId: result.publicId,
-            description: selectedClips[index]?.description,
+            description: selectedClips[index]?.description || "",
           };
         }),
       );
