@@ -2,8 +2,8 @@ import type { Request, Response } from "express";
 import { uploadToCloudinary } from "../services/cloudinary";
 import { transcribeMedia } from "../services/transcribe";
 import { selectClips } from "../services/aiSelector";
-import { v4 as uuidv4 } from "uuid";
-import path from "path";
+import { generateClips } from "../services/ffmpeg";
+import fs from "fs";
 
 function createClipController() {
   const uploadFile = async (req: Request, res: Response) => {
@@ -14,6 +14,7 @@ function createClipController() {
       }
 
       const { prompt, ratio } = req.body;
+      const targetRatio = ratio || "16:9";
 
       if (!prompt) {
         res
@@ -25,29 +26,71 @@ function createClipController() {
       const tempFilePath = req.file.path;
       const mimeType = req.file.mimetype;
 
-      // step 1 — transcribe using the temp file directly (no Cloudinary download needed)
+      // step 1 — transcribe (temp file still on disk)
       const transcript = await transcribeMedia(tempFilePath, mimeType);
 
-      // step 2 — upload to cloudinary (temp file still exists at this point)
+      // step 2 — get duration from cloudinary without deleting temp yet
+      // upload original — but we need duration first, so we peek at it via ffprobe
+      // simpler: upload original first, save duration, then re-use temp for ffmpeg
+      // PROBLEM: uploadToCloudinary deletes temp file
+      // SOLUTION: copy temp file before uploading
+      const tempCopyPath = tempFilePath + ".copy.mp4";
+      fs.copyFileSync(tempFilePath, tempCopyPath);
+
+      // upload original (deletes tempFilePath)
       const uploaded = await uploadToCloudinary(tempFilePath);
 
-      // step 3 — ai clip selection
+      // step 3 — ai clip selection using duration from cloudinary
       const selectedClips = await selectClips(
         transcript,
         prompt,
-        ratio || "16:9",
+        targetRatio,
         uploaded.duration ?? 0,
       );
 
+      // step 4 — cut clips using the copy
+      const generatedClips = await generateClips(
+        tempCopyPath,
+        selectedClips,
+        targetRatio,
+      );
+
+      // clean up copy
+      if (fs.existsSync(tempCopyPath)) fs.unlinkSync(tempCopyPath);
+
+      // step 5 — upload each clip to cloudinary
+      const clipUrls = await Promise.all(
+        generatedClips.map(async (clip, index) => {
+          const result = await uploadToCloudinary(
+            clip.localPath,
+            "auto",
+            "clip-generator/clips",
+          );
+          return {
+            url: result.url,
+            duration: clip.duration,
+            publicId: result.publicId,
+            description: selectedClips[index]?.description,
+          };
+        }),
+      );
+
       res.status(200).json({
-        message: "File processed successfully",
-        file: uploaded,
+        message: "Clips generated successfully",
+        original: uploaded,
         prompt,
-        ratio: ratio || "16:9",
+        ratio: targetRatio,
         transcript,
         selectedClips,
+        clips: clipUrls,
       });
     } catch (error: any) {
+      if (req.file && fs.existsSync(req.file.path))
+        fs.unlinkSync(req.file.path);
+      const tempCopyPath = req.file?.path + ".copy.mp4";
+      if (tempCopyPath && fs.existsSync(tempCopyPath))
+        fs.unlinkSync(tempCopyPath);
+
       console.error("Full error:", error);
       res.status(500).json({ error: error.message || JSON.stringify(error) });
     }

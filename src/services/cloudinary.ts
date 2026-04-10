@@ -11,12 +11,13 @@ interface CloudinaryUploadResult {
 
 export const uploadToCloudinary = async (
   filePath: string,
-  resourceType: "video" | "auto" = "auto"
+  resourceType: "video" | "auto" = "auto",
+  folder: string = "clip-generator/originals"
 ): Promise<CloudinaryUploadResult> => {
   try {
     const result = await cloudinary.uploader.upload(filePath, {
       resource_type: resourceType,
-      folder: "clip-generator/originals",
+      folder,
     });
 
     // delete temp file after upload
