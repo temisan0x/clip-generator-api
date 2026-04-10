@@ -16,7 +16,11 @@ interface JobData {
   ratio: string;
 }
 
+let workerInstance: Worker<JobData> | null = null;
+
 const startWorker = () => {
+  if (workerInstance) return workerInstance;
+
   const connection = getRedisClient();
 
   const clipWorker = new Worker<JobData>(
@@ -145,8 +149,15 @@ const startWorker = () => {
   );
 
   // Event Listeners
+  let hasLoggedReady = false;
   clipWorker.on("ready", () => {
-    console.log("✅ Clip Worker is ready and connected to Redis!");
+    if (!hasLoggedReady) {
+      hasLoggedReady = true;
+      console.log("✅ Clip Worker is ready and connected to Redis!");
+      return;
+    }
+
+    console.log("♻️ Clip Worker reconnected to Redis.");
   });
 
   clipWorker.on("active", (job) => {
@@ -180,7 +191,8 @@ const startWorker = () => {
     console.error("Worker error:", err);
   });
 
-  return clipWorker;
+  workerInstance = clipWorker;
+  return workerInstance;
 };
 
 export default startWorker;

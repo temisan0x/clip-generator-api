@@ -54,7 +54,7 @@ const getRedisClient = () => {
   redisClient = new Redis(rawUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
-    reconnectOnError: () => true,
+    retryStrategy: (times) => Math.min(times * 200, 2000),
     tls: parsed.protocol === "rediss:" ? {} : undefined,
   });
 

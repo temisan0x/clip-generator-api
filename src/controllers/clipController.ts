@@ -3,9 +3,24 @@ import { v4 as uuidv4 } from "uuid";
 import clipQueue from "../queue/clipQueue";
 import { Queue } from "bullmq";
 import getRedisClient from "../config/redis";
+import fs from "node:fs";
+
+const cleanupUploadedFile = (filePath?: string) => {
+  if (!filePath) return;
+  if (!fs.existsSync(filePath)) return;
+
+  try {
+    fs.unlinkSync(filePath);
+    console.log(`🧹 Deleted unqueued upload: ${filePath}`);
+  } catch (error: any) {
+    console.error(`⚠️ Failed to delete upload ${filePath}:`, error.message);
+  }
+};
 
 function createClipController() {
   const uploadFile = async (req: Request, res: Response) => {
+    let jobQueued = false;
+
     try {
       if (!req.file) {
         res.status(400).json({ error: "No file provided" });
@@ -15,6 +30,7 @@ function createClipController() {
       const { prompt, ratio } = req.body;
 
       if (!prompt) {
+        cleanupUploadedFile(req.file.path);
         res.status(400).json({ error: "A prompt describing your clips is required" });
         return;
       }
@@ -28,6 +44,7 @@ function createClipController() {
         prompt,
         ratio: ratio || "16:9",
       }, { jobId });
+      jobQueued = true;
 
       res.status(202).json({
         message: "Job queued successfully",
@@ -35,6 +52,10 @@ function createClipController() {
         statusUrl: `/api/job/${jobId}/status`,
       });
     } catch (error: any) {
+      if (!jobQueued) {
+        cleanupUploadedFile(req.file?.path);
+      }
+
       console.error("Full error:", error);
       res.status(500).json({ error: error.message || JSON.stringify(error) });
     }
