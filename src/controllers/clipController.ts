@@ -27,7 +27,7 @@ function createClipController() {
         mimeType: req.file.mimetype,
         prompt,
         ratio: ratio || "16:9",
-      });
+      }, { jobId });
 
       res.status(202).json({
         message: "Job queued successfully",
@@ -40,33 +40,33 @@ function createClipController() {
     }
   };
 
-  const getJobStatus = async (req: Request, res: Response) => {
-    try {
-      const queue = new Queue("clip-processing", { connection: getRedisClient() });
-      const jobs = await queue.getJobs(["active", "completed", "failed", "waiting"]);
-      const job = jobs.find((j) => j.data.jobId === req.params.id);
+const getJobStatus = async (req: Request, res: Response) => {
+  try {
+    const queue = new Queue("clip-processing", { connection: getRedisClient() });
+    const jobId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const job = await queue.getJob(jobId);
 
-      if (!job) {
-        res.status(404).json({ error: "Job not found" });
-        return;
-      }
-
-      const state = await job.getState();
-      const progress = job.progress;
-      const result = state === "completed" ? job.returnvalue : null;
-      const failReason = state === "failed" ? job.failedReason : null;
-
-      res.status(200).json({
-        jobId: req.params.id,
-        status: state,
-        progress,
-        result,
-        error: failReason,
-      });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    if (!job) {
+      res.status(404).json({ error: "Job not found" });
+      return;
     }
-  };
+
+    const state = await job.getState();
+    const progress = job.progress;
+    const result = state === "completed" ? job.returnvalue : null;
+    const failReason = state === "failed" ? job.failedReason : null;
+
+    res.status(200).json({
+      jobId: req.params.id,
+      status: state,
+      progress,
+      result,
+      error: failReason,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
   const getClips = async (req: Request, res: Response) => {
     res.status(200).json({ jobId: req.params.id, clips: [] });

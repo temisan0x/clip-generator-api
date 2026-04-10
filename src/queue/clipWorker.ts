@@ -100,6 +100,12 @@ const startWorker = () => {
         await job.updateProgress(100);
         console.log(`✅ Job ${job.id} completed successfully!`);
 
+        // Delete original uploaded temp file
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+          console.log(`🧹 Cleaned up original temp file: ${tempFilePath}`);
+        }
+
         return {
           original: uploaded,
           transcript,
@@ -111,6 +117,23 @@ const startWorker = () => {
         console.error(`Full Error:`, JSON.stringify(error, null, 2)); // ← Add this
         if (error.stack) console.error(error.stack);
         throw error;
+      } finally {
+        // Always try to clean up temp files (success or failure)
+        const pathsToClean = [
+          tempFilePath,
+          tempFilePath + ".copy.mp4"
+        ];
+
+        pathsToClean.forEach((filePath) => {
+          if (filePath && fs.existsSync(filePath)) {
+            try {
+              fs.unlinkSync(filePath);
+              console.log(`🧹 Cleaned up: ${filePath}`);
+            } catch (err: any) {
+              console.error(`⚠️ Could not delete ${filePath}:`, err.message);
+            }
+          }
+        });
       }
     },
     {
