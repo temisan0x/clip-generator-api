@@ -7,6 +7,7 @@ export interface ClipJobData {
   mimeType: string;
   prompt: string;
   ratio: string;
+  cleanupDir?: string;
 }
 
 let queue: Queue | null = null;

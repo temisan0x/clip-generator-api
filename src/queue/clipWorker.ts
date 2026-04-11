@@ -14,6 +14,7 @@ interface JobData {
   mimeType: string;
   prompt: string;
   ratio: string;
+  cleanupDir?: string;
 }
 
 let workerInstance: Worker<JobData> | null = null;
@@ -26,7 +27,7 @@ const startWorker = () => {
   const clipWorker = new Worker<JobData>(
     "clip-processing",
     async (job: Job<JobData>) => {
-      const { tempFilePath, mimeType, prompt, ratio } = job.data;
+      const { tempFilePath, mimeType, prompt, ratio, cleanupDir } = job.data;
 
       console.log(`🚀 Processing job ${job.id} | Prompt: ${prompt}`);
 
@@ -123,10 +124,7 @@ const startWorker = () => {
         throw error;
       } finally {
         // Always try to clean up temp files (success or failure)
-        const pathsToClean = [
-          tempFilePath,
-          tempFilePath + ".copy.mp4"
-        ];
+        const pathsToClean = [tempFilePath, tempFilePath + ".copy.mp4"];
 
         pathsToClean.forEach((filePath) => {
           if (filePath && fs.existsSync(filePath)) {
@@ -138,6 +136,18 @@ const startWorker = () => {
             }
           }
         });
+
+        if (cleanupDir && fs.existsSync(cleanupDir)) {
+          try {
+            fs.rmSync(cleanupDir, { recursive: true, force: true });
+            console.log(`🧹 Cleaned up URL temp directory: ${cleanupDir}`);
+          } catch (err: any) {
+            console.error(
+              `⚠️ Could not delete temp directory ${cleanupDir}:`,
+              err.message,
+            );
+          }
+        }
       }
     },
     {
@@ -184,6 +194,12 @@ const startWorker = () => {
           } catch (_) {}
         }
       });
+    }
+
+    if (job?.data?.cleanupDir && fs.existsSync(job.data.cleanupDir)) {
+      try {
+        fs.rmSync(job.data.cleanupDir, { recursive: true, force: true });
+      } catch (_) {}
     }
   });
 

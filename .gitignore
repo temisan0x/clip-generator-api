@@ -3,3 +3,10 @@ node_modules
 dist
 managed_context
 test_suite_analysisnote
+uploads/*
+!uploads/.gitkeep
+temp/url-downloads/*
+!temp/url-downloads/.gitkeep
+*.part
+*.ytdl
+*-player-script.js
