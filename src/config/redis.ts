@@ -1,4 +1,3 @@
-// src/config/redis.ts
 import Redis from "ioredis";
 
 let redisClient: Redis | null = null;
@@ -6,10 +5,7 @@ let redisClient: Redis | null = null;
 const maskRedisUrl = (rawUrl: string): string => {
   try {
     const parsed = new URL(rawUrl);
-    const user = parsed.username || "user";
-    const host = parsed.hostname;
-    const port = parsed.port || "6379";
-    return `${parsed.protocol}//${user}:***@${host}:${port}`;
+    return `${parsed.protocol}//${parsed.username || "default"}:***@${parsed.hostname}:${parsed.port || "6379"}`;
   } catch {
     return "[invalid-url]";
   }
@@ -18,44 +14,41 @@ const maskRedisUrl = (rawUrl: string): string => {
 const getRedisClient = () => {
   if (redisClient) return redisClient;
 
-  const rawUrl = process.env.UPSTASH_REDIS_URL || process.env.REDIS_URL;
+  const rawUrl = process.env.UPSTASH_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();
 
   if (!rawUrl) {
-    throw new Error(
-      "❌ Missing Redis URL. Set UPSTASH_REDIS_URL (or REDIS_URL) to a rediss:// URL from Upstash."
-    );
+    throw new Error("❌ UPSTASH_REDIS_URL is missing in .env");
   }
 
-  if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
-    throw new Error(
-      "❌ Invalid Redis URL scheme. BullMQ/ioredis needs rediss://...:6379, not https:// (REST endpoint)."
-    );
+  if (rawUrl.startsWith("http")) {
+    throw new Error("❌ Wrong Redis URL format. Use rediss://... (not https://)");
   }
 
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
   } catch {
-    throw new Error("❌ Invalid Redis URL format in .env");
-  }
-
-  if (!["redis:", "rediss:"].includes(parsed.protocol)) {
-    throw new Error("❌ Redis URL must start with redis:// or rediss://");
+    throw new Error("❌ Invalid Redis URL format");
   }
 
   if (parsed.username === "default_ro") {
-    throw new Error(
-      "❌ Read-only Redis user (default_ro) cannot be used by BullMQ workers. Use write-enabled user (usually default)."
-    );
+    throw new Error("❌ Use write-enabled Redis user (default), not default_ro");
   }
 
-  console.log("🔗 Connecting to Redis with URL:", maskRedisUrl(rawUrl));
+  console.log("🔗 Connecting to Redis:", maskRedisUrl(rawUrl));
 
   redisClient = new Redis(rawUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
-    retryStrategy: (times) => Math.min(times * 200, 2000),
-    tls: parsed.protocol === "rediss:" ? {} : undefined,
+    connectTimeout: 15000,
+    keepAlive: 30000,
+    family: 4,                    // Force IPv4 (very helpful in Nigeria)
+    retryStrategy: (times) => Math.min(times * 300, 5000),
+    reconnectOnError: (err) => {
+      console.warn("Redis reconnecting due to:", err.message);
+      return true;
+    },
+    tls: rawUrl.startsWith("rediss") ? {} : undefined,
   });
 
   return redisClient;
