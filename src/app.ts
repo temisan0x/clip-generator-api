@@ -18,8 +18,8 @@ app.use(cors({
 
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ extended: true, limit: "200mb" }));
-app.use("/api", createFileRouter());
 app.use(globalLimiter);
+app.use("/api", createFileRouter());
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
