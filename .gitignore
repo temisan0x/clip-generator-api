@@ -11,3 +11,4 @@ temp/url-downloads/*
 *.ytdl
 *-player-script.js
 yt-dlp-binary
+cookies.txt
