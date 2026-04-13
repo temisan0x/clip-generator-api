@@ -10,81 +10,88 @@ const MIN_VALID_DOWNLOAD_SIZE = 50_000;
 
 export const downloadFromUrl = async (
   url: string,
-  outputRootDir: string
+  outputRootDir: string,
 ): Promise<{ filePath: string; mimeType: string; cleanupDir: string }> => {
-  
   if (!fs.existsSync(outputRootDir)) {
     fs.mkdirSync(outputRootDir, { recursive: true });
   }
 
-  const sessionDir = path.join(outputRootDir, `url-download-${Date.now()}-${randomUUID().slice(0, 8)}`);
+  const sessionDir = path.resolve(
+    path.join(
+      outputRootDir,
+      `url-download-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    ),
+  );
+
   fs.mkdirSync(sessionDir, { recursive: true });
 
   const outputTemplate = path.join(sessionDir, "source.%(ext)s");
 
   console.log(`⬇️ Starting download: ${url}`);
+  console.log(`📂 Session dir: ${sessionDir}`);
 
   try {
-    const commandArgs = [
+    const args = [
       "--no-playlist",
       "--no-warnings",
-      "--retries", "5",
-      "--fragment-retries", "5",
+      "--retries",
+      "5",
+      "--fragment-retries",
+      "5",
       "--abort-on-unavailable-fragment",
-      "--paths", `temp:${sessionDir}`,
-      "--output", outputTemplate,
-      "--force-ipv4",                    // Helps with Nigerian networks
+      "--output",
+      outputTemplate,
+      "--force-overwrites",
+      "--no-part",
+      "--force-ipv4",
     ];
 
     if (url.includes("youtube.com") || url.includes("youtu.be")) {
-      console.log("🎥 YouTube/Shorts detected");
-      commandArgs.push(
-        "-f", "bv*[height<=720]+ba/bestaudio/best",
-        "--merge-output-format", "mp4"
+      console.log("🎥 YouTube detected");
+      args.push(
+        "-f",
+        "bv*[height<=720]+ba/bestaudio/best",
+        "--merge-output-format",
+        "mp4",
       );
     } else {
-      commandArgs.push("--merge-output-format", "mp4");
+      args.push("--merge-output-format", "mp4");
     }
 
-    commandArgs.push(url);
+    args.push(url);
 
-    const { stdout, stderr } = await execFilePromise("yt-dlp", commandArgs, {
+    await execFilePromise("yt-dlp", args, {
       maxBuffer: 50 * 1024 * 1024,
-      timeout: 180000, // 3 minutes
+      timeout: 180000,
     });
 
-    if (stdout) console.log(stdout.trim());
-    if (stderr) console.warn(stderr.trim());
-
-    // Find the final file
     const files = fs.readdirSync(sessionDir);
-    const finalFile = files.find(f => 
-      f.endsWith(".mp4") && !f.includes(".part")
+    const finalFile = files.find(
+      (f) => f.endsWith(".mp4") && !f.includes(".part"),
     );
 
-    if (!finalFile) throw new Error("No output file found after download");
+    if (!finalFile) throw new Error("No output file found");
 
-    const filePath = path.join(sessionDir, finalFile);
-    const fileSize = fs.statSync(filePath).size;
+    const filePath = path.resolve(path.join(sessionDir, finalFile));
+    const size = fs.statSync(filePath).size;
 
-    if (fileSize < MIN_VALID_DOWNLOAD_SIZE) {
-      throw new Error("Downloaded file is too small");
+    console.log("📂 Files in session dir:", fs.readdirSync(sessionDir));
+
+    if (size < MIN_VALID_DOWNLOAD_SIZE) {
+      throw new Error("Downloaded file too small");
     }
 
-    console.log(`✅ Download successful! Size: ${(fileSize / (1024*1024)).toFixed(1)} MB`);
-    
+    console.log(`✅ File ready: ${filePath}`);
+
     return {
       filePath,
       mimeType: "video/mp4",
       cleanupDir: sessionDir,
     };
-
-  } catch (error: any) {
-    console.error("Download error:", error.message);
-    // Clean up on failure
+  } catch (err: any) {
     if (fs.existsSync(sessionDir)) {
       fs.rmSync(sessionDir, { recursive: true, force: true });
     }
-    throw new Error(`URL download failed: ${error.message}`);
+    throw new Error(`Download failed: ${err.message}`);
   }
 };

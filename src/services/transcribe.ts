@@ -1,4 +1,3 @@
-// src/services/transcribe.ts
 import fs from "fs";
 import { getGroqClient } from "../config/groq";
 
@@ -13,9 +12,6 @@ export const transcribeMedia = async (
   mimeType: string,
 ): Promise<TranscriptSegment[]> => {
   
-  console.log("🧪 Transcription path received:", tempFilePath);
-  console.log("🧪 Exists?", fs.existsSync(tempFilePath));
-
   if (!fs.existsSync(tempFilePath)) {
     throw new Error("File not found for transcription");
   }

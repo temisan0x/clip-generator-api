@@ -1,21 +1,13 @@
-import { Worker, Job } from "bullmq";
-import getRedisClient from "../config/redis";
+import { Worker } from "bullmq";
 import { uploadToCloudinary } from "../services/cloudinary";
 import { transcribeMedia } from "../services/transcribe";
 import { selectClips } from "../services/aiSelector";
 import { generateClips } from "../services/ffmpeg";
+import bullRedis from "../config/redis.bull";
 import fs from "fs";
+import type { ClipJobData } from "../types/clipJob";
 
-interface JobData {
-  jobId: string;
-  tempFilePath: string;
-  mimeType: string;
-  prompt: string;
-  ratio: string;
-  cleanupDir?: string;
-}
-
-let workerInstance: Worker<JobData> | null = null;
+let workerInstance: Worker<ClipJobData> | null = null;
 let loggedReady = false;
 
 const startWorker = () => {
@@ -23,46 +15,69 @@ const startWorker = () => {
 
   console.log("🚀 Initializing Clip Worker...");
 
-  const connection = getRedisClient();
-
-  // REAL Redis validation before worker starts
-  connection.ping()
+  bullRedis
+    .ping()
     .then(() => console.log("🟢 Redis PING successful"))
-    .catch((err) => {
-      console.error("🔴 Redis PING failed:", err.message);
-    });
+    .catch((err) => console.error("🔴 Redis PING failed:", err.message));
 
-  const worker = new Worker<JobData>(
+  const worker = new Worker<ClipJobData>(
     "clip-processing",
-    async (job: Job<JobData>) => {
+    async (job) => {
       const { tempFilePath, mimeType, prompt, ratio, cleanupDir } = job.data;
 
       console.log(`⚡ Processing job: ${job.id}`);
+      console.log(`📁 tempFilePath: ${tempFilePath}`);
+      console.log(`📁 exists: ${fs.existsSync(tempFilePath)}`);
+      console.log(`📁 cleanupDir: ${cleanupDir}`);
+
+      // verify file exists before doing anything
+      if (!fs.existsSync(tempFilePath)) {
+        throw new Error(`File not found for processing: ${tempFilePath}`);
+      }
+
+      let tempCopyPath: string | undefined;
 
       try {
         await job.updateProgress(10);
+
+        // transcribe using original file
         const transcript = await transcribeMedia(tempFilePath, mimeType);
-
         await job.updateProgress(25);
-        const uploaded = await uploadToCloudinary(tempFilePath, "video");
 
+        // copy before cloudinary deletes the original
+        tempCopyPath = tempFilePath + ".copy.mp4";
+        fs.copyFileSync(tempFilePath, tempCopyPath);
+        console.log(`📋 Copy created: ${tempCopyPath}`);
+
+        // upload original to cloudinary (this deletes tempFilePath)
+        const uploaded = await uploadToCloudinary(tempFilePath, "video");
         await job.updateProgress(50);
+
+        // ai clip selection
         const selectedClips = await selectClips(
           transcript,
           prompt,
           ratio,
           uploaded.duration ?? 0
         );
-
         await job.updateProgress(70);
+
+        // cut clips using the copy
         const generatedClips = await generateClips(
-          tempFilePath,
+          tempCopyPath,
           selectedClips,
           ratio
         );
 
+        // delete copy after ffmpeg is done
+        if (fs.existsSync(tempCopyPath)) {
+          fs.unlinkSync(tempCopyPath);
+          console.log(`🧹 Deleted copy: ${tempCopyPath}`);
+        }
+
         await job.updateProgress(85);
 
+        // upload each clip
         const finalClips = await Promise.all(
           generatedClips.map(async (clip, i) => {
             const result = await uploadToCloudinary(
@@ -70,11 +85,9 @@ const startWorker = () => {
               "video",
               "clip-generator/clips"
             );
-
             if (fs.existsSync(clip.localPath)) {
               fs.unlinkSync(clip.localPath);
             }
-
             return {
               url: result.url,
               publicId: result.publicId,
@@ -86,42 +99,35 @@ const startWorker = () => {
 
         await job.updateProgress(100);
 
-        console.log(`✅ Job completed: ${job.id}`);
-
         return {
           original: uploaded,
           transcript,
           selectedClips,
           clips: finalClips,
         };
-      } catch (err: any) {
-        console.error(`❌ Job failed: ${job.id}`, err.message);
-        throw err;
-      } finally {
-        try {
-          [tempFilePath, tempFilePath + ".copy.mp4"].forEach((p) => {
-            if (p && fs.existsSync(p)) fs.unlinkSync(p);
-          });
 
+      } catch (err) {
+        // clean up copy if something failed mid-way
+        if (tempCopyPath && fs.existsSync(tempCopyPath)) {
+          fs.unlinkSync(tempCopyPath);
+        }
+        throw err;
+
+      } finally {
+        // clean up session directory for URL downloads
+        try {
           if (cleanupDir && fs.existsSync(cleanupDir)) {
             fs.rmSync(cleanupDir, { recursive: true, force: true });
+            console.log(`🧹 Deleted session dir: ${cleanupDir}`);
           }
-        } catch (e) {
-          console.error("Cleanup error:", e);
+        } catch (e: any) {
+          console.error("Cleanup error:", e.message);
         }
       }
     },
-    {
-      connection,
-      concurrency: 1,
-      lockDuration: 300000,
-      stalledInterval: 60000,
-      removeOnComplete: { age: 7200 },
-      removeOnFail: { age: 86400 },
-    }
+    { connection: bullRedis }
   );
 
-  // CLEAN EVENTS (NO MISLEADING LOGS)
   worker.on("ready", () => {
     if (!loggedReady) {
       console.log("🟢 Worker ready");
@@ -142,11 +148,15 @@ const startWorker = () => {
   });
 
   worker.on("error", (err) => {
-    console.error("❌ Worker error:", err.message);
+    if (!err?.message) return; 
+    if (err.message.includes("ETIMEDOUT")) {
+      console.error("🚨 Redis timeout detected");
+    } else {
+      console.error("❌ Worker error:", err.message);
+    }
   });
 
   workerInstance = worker;
-
   return worker;
 };
 

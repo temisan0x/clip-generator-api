@@ -1,23 +1,25 @@
 import { Queue } from "bullmq";
-import getRedisClient from "../config/redis";
+import bullRedis from "../config/redis.bull";
+import type { ClipJobData } from "../types/clipJob";
 
-export interface ClipJobData {
-  jobId: string;
-  tempFilePath: string;
-  mimeType: string;
-  prompt: string;
-  ratio: string;
-  cleanupDir?: string;
-}
+let queue: Queue<ClipJobData> | null = null;
 
-let queue: Queue | null = null;
-
-const getClipQueue = (): Queue => {
+const getClipQueue = (): Queue<ClipJobData> => {
   if (!queue) {
-    queue = new Queue("clip-processing", {
-      connection: getRedisClient(),
+    queue = new Queue<ClipJobData>("clip-processing", {
+      connection: bullRedis,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 5000,
+        },
+        removeOnComplete: { age: 7200 },
+        removeOnFail: { age: 86400 },
+      },
     });
   }
+
   return queue;
 };
 
