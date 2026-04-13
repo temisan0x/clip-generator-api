@@ -4,6 +4,7 @@ import clipQueue from "../queue/clipQueue";
 import { Queue } from "bullmq";
 import getRedisClient from "../config/redis";
 import { downloadFromUrl } from "../utils/downloadFromUrl";
+
 import path from "path";
 import fs from "node:fs";
 
@@ -167,12 +168,13 @@ function createClipController() {
       return res.status(200).json({
         jobId,
         status: state,
-        progress: job.progress,
+        progress: job.progress || 0,
         result: state === "completed" ? job.returnvalue : null,
         error: state === "failed" ? job.failedReason : null,
       });
     } catch (error: any) {
-      return res.status(500).json({ error: error.message });
+      console.error("Job status error:", error);
+      return res.status(500).json({ error: error.message || "Internal server error" });
     }
   };
 
