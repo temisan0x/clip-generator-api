@@ -12,7 +12,6 @@ export const getGroqClient = (): Groq => {
 
     client = new Groq({ 
       apiKey,
-      // Optional: helps with debugging
     });
   }
   return client;

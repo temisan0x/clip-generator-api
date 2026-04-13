@@ -1,93 +1,65 @@
-import { Worker } from "bullmq";
+import { Worker, Job } from "bullmq";
+import bullRedis from "../config/redis.bull";
 import { uploadToCloudinary } from "../services/cloudinary";
 import { transcribeMedia } from "../services/transcribe";
 import { selectClips } from "../services/aiSelector";
 import { generateClips } from "../services/ffmpeg";
-import bullRedis from "../config/redis.bull";
 import fs from "fs";
 import type { ClipJobData } from "../types/clipJob";
 
 let workerInstance: Worker<ClipJobData> | null = null;
-let loggedReady = false;
 
 const startWorker = () => {
   if (workerInstance) return workerInstance;
 
   console.log("🚀 Initializing Clip Worker...");
 
-  bullRedis
-    .ping()
-    .then(() => console.log("🟢 Redis PING successful"))
-    .catch((err) => console.error("🔴 Redis PING failed:", err.message));
-
   const worker = new Worker<ClipJobData>(
     "clip-processing",
-    async (job) => {
+    async (job: Job<ClipJobData>) => {
       const { tempFilePath, mimeType, prompt, ratio, cleanupDir } = job.data;
 
-      console.log(`⚡ Processing job: ${job.id}`);
-      console.log(`📁 tempFilePath: ${tempFilePath}`);
-      console.log(`📁 exists: ${fs.existsSync(tempFilePath)}`);
-      console.log(`📁 cleanupDir: ${cleanupDir}`);
-
-      // verify file exists before doing anything
-      if (!fs.existsSync(tempFilePath)) {
-        throw new Error(`File not found for processing: ${tempFilePath}`);
-      }
+      console.log(`⚡ Processing job ${job.id}`);
 
       let tempCopyPath: string | undefined;
 
       try {
+        // === Step 1: Transcription ===
         await job.updateProgress(10);
-
-        // transcribe using original file
         const transcript = await transcribeMedia(tempFilePath, mimeType);
         await job.updateProgress(25);
 
-        // copy before cloudinary deletes the original
+        // === Step 2: Create copy for processing ===
         tempCopyPath = tempFilePath + ".copy.mp4";
         fs.copyFileSync(tempFilePath, tempCopyPath);
-        console.log(`📋 Copy created: ${tempCopyPath}`);
 
-        // upload original to cloudinary (this deletes tempFilePath)
+        // === Step 3: Upload original ===
+        await job.updateProgress(35);
         const uploaded = await uploadToCloudinary(tempFilePath, "video");
         await job.updateProgress(50);
 
-        // ai clip selection
+        // === Step 4: AI Selection ===
         const selectedClips = await selectClips(
           transcript,
           prompt,
           ratio,
           uploaded.duration ?? 0
         );
+        await job.updateProgress(65);
+
+        // === Step 5: FFmpeg Clipping (Most Memory Heavy) ===
         await job.updateProgress(70);
-
-        // cut clips using the copy
-        const generatedClips = await generateClips(
-          tempCopyPath,
-          selectedClips,
-          ratio
-        );
-
-        // delete copy after ffmpeg is done
-        if (fs.existsSync(tempCopyPath)) {
-          fs.unlinkSync(tempCopyPath);
-          console.log(`🧹 Deleted copy: ${tempCopyPath}`);
-        }
-
+        const generatedClips = await generateClips(tempCopyPath, selectedClips, ratio);
         await job.updateProgress(85);
 
-        // upload each clip
+        // === Step 6: Upload final clips ===
         const finalClips = await Promise.all(
           generatedClips.map(async (clip, i) => {
-            const result = await uploadToCloudinary(
-              clip.localPath,
-              "video",
-              "clip-generator/clips"
-            );
-            if (fs.existsSync(clip.localPath)) {
-              fs.unlinkSync(clip.localPath);
-            }
+            const result = await uploadToCloudinary(clip.localPath, "video", "clip-generator/clips");
+
+            // Delete local clip immediately after upload
+            if (fs.existsSync(clip.localPath)) fs.unlinkSync(clip.localPath);
+
             return {
               url: result.url,
               publicId: result.publicId,
@@ -106,55 +78,39 @@ const startWorker = () => {
           clips: finalClips,
         };
 
-      } catch (err) {
-        // clean up copy if something failed mid-way
-        if (tempCopyPath && fs.existsSync(tempCopyPath)) {
-          fs.unlinkSync(tempCopyPath);
-        }
+      } catch (err: any) {
+        console.error(`💥 Job ${job.id} failed:`, err.message);
         throw err;
-
       } finally {
-        // clean up session directory for URL downloads
-        try {
-          if (cleanupDir && fs.existsSync(cleanupDir)) {
-            fs.rmSync(cleanupDir, { recursive: true, force: true });
-            console.log(`🧹 Deleted session dir: ${cleanupDir}`);
+        // Aggressive cleanup
+        [tempFilePath, tempCopyPath].forEach((path) => {
+          if (path && fs.existsSync(path)) {
+            try { fs.unlinkSync(path); } catch (_) {}
           }
-        } catch (e: any) {
-          console.error("Cleanup error:", e.message);
+        });
+
+        if (cleanupDir && fs.existsSync(cleanupDir)) {
+          try {
+            fs.rmSync(cleanupDir, { recursive: true, force: true });
+          } catch (_) {}
         }
       }
     },
-    { connection: bullRedis }
+    {
+      connection: bullRedis,
+      concurrency: 1,               // Very important on low memory
+      lockDuration: 600000,         // 10 minutes (long jobs)
+      stalledInterval: 90000,       // 90 seconds
+      removeOnComplete: { age: 3600 },
+      removeOnFail: { age: 86400 },
+    }
   );
 
-  worker.on("ready", () => {
-    if (!loggedReady) {
-      console.log("🟢 Worker ready");
-      loggedReady = true;
-    }
-  });
-
-  worker.on("active", (job) => {
-    console.log(`⚡ Active job: ${job.id}`);
-  });
-
-  worker.on("completed", (job) => {
-    console.log(`🎉 Completed job: ${job.id}`);
-  });
-
-  worker.on("failed", (job, err) => {
-    console.error(`💥 Failed job: ${job?.id}`, err.message);
-  });
-
-  worker.on("error", (err) => {
-    if (!err?.message) return; 
-    if (err.message.includes("ETIMEDOUT")) {
-      console.error("🚨 Redis timeout detected");
-    } else {
-      console.error("❌ Worker error:", err.message);
-    }
-  });
+  // Events
+  worker.on("ready", () => console.log("🟢 Worker ready"));
+  worker.on("active", (job) => console.log(`⚡ Job ${job.id} started`));
+  worker.on("completed", (job) => console.log(`🎉 Job ${job.id} completed`));
+  worker.on("failed", (job, err) => console.error(`💥 Job ${job?.id} failed:`, err.message));
 
   workerInstance = worker;
   return worker;
