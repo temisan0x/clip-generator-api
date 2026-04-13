@@ -5,14 +5,19 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const execFilePromise = promisify(execFile);
-
 const MIN_VALID_DOWNLOAD_SIZE = 50_000;
 
 export const downloadFromUrl = async (
   url: string,
-  outputRootDir: string
+  outputRootDir: string,
 ): Promise<{ filePath: string; mimeType: string; cleanupDir: string }> => {
-  
+
+  if (/youtube\.com|youtu\.be/.test(url)) {
+    throw new Error(
+      "YouTube URLs are not currently supported. Please download the video and upload it as a file instead."
+    );
+  }
+
   if (!fs.existsSync(outputRootDir)) {
     fs.mkdirSync(outputRootDir, { recursive: true });
   }
@@ -21,11 +26,9 @@ export const downloadFromUrl = async (
     outputRootDir,
     `url-download-${Date.now()}-${randomUUID().slice(0, 8)}`
   );
-
   fs.mkdirSync(sessionDir, { recursive: true });
 
   const outputTemplate = path.join(sessionDir, "source.%(ext)s");
-
   console.log(`⬇️ Starting download: ${url}`);
 
   try {
@@ -38,31 +41,19 @@ export const downloadFromUrl = async (
       "--output", outputTemplate,
       "--force-overwrites",
       "--no-part",
-      "--force-ipv4",
-      "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "--referer", "https://www.youtube.com/",
+      "--merge-output-format", "mp4",
+      url,
     ];
-
-    if (url.includes("youtube.com") || url.includes("youtu.be")) {
-      console.log("🎥 YouTube/Shorts detected");
-      args.push(
-        "-f", "bv*[height<=720]+ba/bestaudio/best",
-        "--merge-output-format", "mp4"
-      );
-    } else {
-      args.push("--merge-output-format", "mp4");
-    }
-
-    args.push(url);
 
     await execFilePromise("yt-dlp", args, {
       maxBuffer: 50 * 1024 * 1024,
-      timeout: 180000, // 3 minutes
+      timeout: 180_000,
     });
 
-    // Find the final mp4 file
     const files = fs.readdirSync(sessionDir);
-    const finalFile = files.find(f => f.endsWith(".mp4") && !f.includes(".part"));
+    const finalFile = files.find(
+      (f) => f.endsWith(".mp4") && !f.includes(".part")
+    );
 
     if (!finalFile) throw new Error("No output file found after download");
 
@@ -75,11 +66,7 @@ export const downloadFromUrl = async (
 
     console.log(`✅ Download successful! Size: ${(size / (1024 * 1024)).toFixed(1)} MB`);
 
-    return {
-      filePath,
-      mimeType: "video/mp4",
-      cleanupDir: sessionDir,
-    };
+    return { filePath, mimeType: "video/mp4", cleanupDir: sessionDir };
 
   } catch (err: any) {
     console.error("Download error:", err.message);

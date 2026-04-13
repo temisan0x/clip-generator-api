@@ -17,15 +17,14 @@ RUN npm run build
 FROM node:20-slim AS runner
 WORKDIR /app
 
-# Install ffmpeg + curl, then download yt-dlp binary directly from GitHub
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
     python3 \
-    && curl --http1.1 -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
-
+    
 # Copy built app only
 COPY --from=builder /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
