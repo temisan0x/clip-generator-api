@@ -12,7 +12,7 @@ function createFileRouter() {
   const { uploadFile, uploadFromUrl, getJobStatus, getClips } = createClipController();
 
  router.post("/upload", uploadLimiter, upload.single("file"), uploadFile);
-  router.post("/upload-url", uploadLimiter, uploadFromUrl);
+  router.post("/upload-url", uploadFromUrl);
   router.get("/job/:id/status", statusLimiter, getJobStatus);
   router.get("/job/:id/clips", getClips);
 
