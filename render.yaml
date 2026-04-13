@@ -1,19 +1,19 @@
 services:
   - type: web
-    name: temi-clips-api
-    env: docker
-    plan: free
-    dockerfilePath: ./Dockerfile
+    name: clip-generator-api
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     envVars:
-      - key: UPSTASH_REDIS_URL
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false
+      - key: PORT
+        value: 3000
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: NODE_ENV
-        value: production
+      - key: GROQ_API_KEY
+        sync: false
+      - key: UPSTASH_REDIS_URL
+        sync: false

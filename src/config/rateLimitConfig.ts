@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 // 5 uploads per hour per IP
 export const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5,
+   max: process.env.NODE_ENV === "production" ? 5 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -14,7 +14,7 @@ export const uploadLimiter = rateLimit({
 // 20 status checks per minute per IP
 export const statusLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 20,
+   max: process.env.NODE_ENV === "production" ? 20 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

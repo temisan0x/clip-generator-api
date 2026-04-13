@@ -16,45 +16,64 @@ interface JobData {
 }
 
 let workerInstance: Worker<JobData> | null = null;
+let loggedReady = false;
 
 const startWorker = () => {
   if (workerInstance) return workerInstance;
 
+  console.log("🚀 Initializing Clip Worker...");
+
   const connection = getRedisClient();
 
-  const clipWorker = new Worker<JobData>(
+  // REAL Redis validation before worker starts
+  connection.ping()
+    .then(() => console.log("🟢 Redis PING successful"))
+    .catch((err) => {
+      console.error("🔴 Redis PING failed:", err.message);
+    });
+
+  const worker = new Worker<JobData>(
     "clip-processing",
     async (job: Job<JobData>) => {
       const { tempFilePath, mimeType, prompt, ratio, cleanupDir } = job.data;
 
-      console.log(`🚀 Starting job ${job.id}`);
+      console.log(`⚡ Processing job: ${job.id}`);
 
       try {
-        // Transcription
         await job.updateProgress(10);
         const transcript = await transcribeMedia(tempFilePath, mimeType);
-        await job.updateProgress(25);
 
-        // Upload Original
-        await job.updateProgress(35);
+        await job.updateProgress(25);
         const uploaded = await uploadToCloudinary(tempFilePath, "video");
 
-        // AI Selection
         await job.updateProgress(50);
-        const selectedClips = await selectClips(transcript, prompt, ratio, uploaded.duration ?? 0);
-        await job.updateProgress(65);
+        const selectedClips = await selectClips(
+          transcript,
+          prompt,
+          ratio,
+          uploaded.duration ?? 0
+        );
 
-        // Generate Clips
         await job.updateProgress(70);
-        const generatedClips = await generateClips(tempFilePath, selectedClips, ratio);
-        await job.updateProgress(80);
+        const generatedClips = await generateClips(
+          tempFilePath,
+          selectedClips,
+          ratio
+        );
 
-        // Upload Clips
         await job.updateProgress(85);
+
         const finalClips = await Promise.all(
           generatedClips.map(async (clip, i) => {
-            const result = await uploadToCloudinary(clip.localPath, "video", "clip-generator/clips");
-            if (fs.existsSync(clip.localPath)) fs.unlinkSync(clip.localPath);
+            const result = await uploadToCloudinary(
+              clip.localPath,
+              "video",
+              "clip-generator/clips"
+            );
+
+            if (fs.existsSync(clip.localPath)) {
+              fs.unlinkSync(clip.localPath);
+            }
 
             return {
               url: result.url,
@@ -66,7 +85,8 @@ const startWorker = () => {
         );
 
         await job.updateProgress(100);
-        console.log(`✅ Job ${job.id} completed`);
+
+        console.log(`✅ Job completed: ${job.id}`);
 
         return {
           original: uploaded,
@@ -74,41 +94,60 @@ const startWorker = () => {
           selectedClips,
           clips: finalClips,
         };
-      } catch (error: any) {
-        console.error(`❌ Job ${job.id} failed:`, error.message);
-        throw error;
+      } catch (err: any) {
+        console.error(`❌ Job failed: ${job.id}`, err.message);
+        throw err;
       } finally {
-        // Cleanup
-        [tempFilePath, tempFilePath + ".copy.mp4"].forEach((p) => {
-          if (p && fs.existsSync(p)) {
-            try { fs.unlinkSync(p); } catch (_) {}
-          }
-        });
+        try {
+          [tempFilePath, tempFilePath + ".copy.mp4"].forEach((p) => {
+            if (p && fs.existsSync(p)) fs.unlinkSync(p);
+          });
 
-        if (cleanupDir && fs.existsSync(cleanupDir)) {
-          try { fs.rmSync(cleanupDir, { recursive: true, force: true }); } catch (_) {}
+          if (cleanupDir && fs.existsSync(cleanupDir)) {
+            fs.rmSync(cleanupDir, { recursive: true, force: true });
+          }
+        } catch (e) {
+          console.error("Cleanup error:", e);
         }
       }
     },
     {
       connection,
       concurrency: 1,
-      lockDuration: 300000,        // 5 minutes (important for long jobs)
-      stalledInterval: 60000,      // Check for stalled jobs every 60s
-      removeOnComplete: { age: 7200 },  // 2 hours
+      lockDuration: 300000,
+      stalledInterval: 60000,
+      removeOnComplete: { age: 7200 },
       removeOnFail: { age: 86400 },
     }
   );
 
-  // Events
-  clipWorker.on("ready", () => console.log("✅ Worker connected to Redis"));
-  clipWorker.on("active", (job) => console.log(`⚡ Processing job ${job.id}`));
-  clipWorker.on("completed", (job) => console.log(`🎉 Job ${job.id} done`));
-  clipWorker.on("failed", (job, err) => console.error(`💥 Job ${job?.id} failed:`, err.message));
-  clipWorker.on("error", (err) => console.error("Worker error:", err));
+  // CLEAN EVENTS (NO MISLEADING LOGS)
+  worker.on("ready", () => {
+    if (!loggedReady) {
+      console.log("🟢 Worker ready");
+      loggedReady = true;
+    }
+  });
 
-  workerInstance = clipWorker;
-  return clipWorker;
+  worker.on("active", (job) => {
+    console.log(`⚡ Active job: ${job.id}`);
+  });
+
+  worker.on("completed", (job) => {
+    console.log(`🎉 Completed job: ${job.id}`);
+  });
+
+  worker.on("failed", (job, err) => {
+    console.error(`💥 Failed job: ${job?.id}`, err.message);
+  });
+
+  worker.on("error", (err) => {
+    console.error("❌ Worker error:", err.message);
+  });
+
+  workerInstance = worker;
+
+  return worker;
 };
 
 export default startWorker;

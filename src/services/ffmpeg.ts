@@ -1,7 +1,11 @@
 import ffmpeg from "fluent-ffmpeg";
+import ffmpegPath from "ffmpeg-static";
 import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
+
+// point to bundled ffmpeg binary
+ffmpeg.setFfmpegPath(ffmpegPath!);
 
 interface SelectedClip {
   start: number;
