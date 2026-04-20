@@ -5,60 +5,101 @@ import { transcribeMedia } from "../services/transcribe";
 import { selectClips } from "../services/aiSelector";
 import { generateClips } from "../services/ffmpeg";
 import fs from "fs";
+import path from "path";
 import type { ClipJobData } from "../types/clipJob";
 
 let workerInstance: Worker<ClipJobData> | null = null;
+
+const TEMP_DIR = path.join(process.cwd(), "temp");
+
+const ensureTempDir = () => {
+  try {
+    if (!fs.existsSync(TEMP_DIR)) {
+      fs.mkdirSync(TEMP_DIR, { recursive: true });
+    }
+  } catch (e) {
+    console.error("Failed to create temp dir:", e);
+  }
+}
+
+// Helper to download from Cloudinary
+const downloadFromCloudinary = async (url: string, jobId: string): Promise<string> => {
+  const localPath = path.join(TEMP_DIR, `${jobId}-original.mp4`);
+  
+  console.log(`⬇️ Downloading from Cloudinary: ${url}`);
+
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
+
+  const buffer = await response.arrayBuffer();
+  fs.writeFileSync(localPath, Buffer.from(buffer));
+
+  console.log(`✅ Downloaded to: ${localPath}`);
+  return localPath;
+};
+
+const cleanupFile = (filePath?: string) => {
+  if (!filePath || !fs.existsSync(filePath)) return;
+  try {
+    fs.unlinkSync(filePath);
+    console.log(`🧹 Cleaned: ${filePath}`);
+  } catch (e) {
+    console.error(`⚠️ Failed to clean ${filePath}:`, e);
+  }
+};
 
 const startWorker = () => {
   if (workerInstance) return workerInstance;
 
   console.log("🚀 Initializing Clip Worker...");
 
+  ensureTempDir();
+
   const worker = new Worker<ClipJobData>(
     "clip-processing",
     async (job: Job<ClipJobData>) => {
-      const { tempFilePath, mimeType, prompt, ratio, cleanupDir } = job.data;
+      const { cloudinaryUrl, publicId, prompt, ratio, originalDuration } = job.data;
 
       console.log(`⚡ Processing job ${job.id}`);
 
+      let localVideoPath: string | undefined;
       let tempCopyPath: string | undefined;
 
       try {
-        //  Transcription
-        await job.updateProgress(10);
-        const transcript = await transcribeMedia(tempFilePath, mimeType);
-        await job.updateProgress(25);
+        // 1. Download video from Cloudinary
+        await job.updateProgress(5);
+        localVideoPath = await downloadFromCloudinary(cloudinaryUrl, job.id!);
 
-        // Create copy for processing
-        tempCopyPath = tempFilePath + ".copy.mp4";
-        fs.copyFileSync(tempFilePath, tempCopyPath);
+        // 2. Transcription
+        await job.updateProgress(15);
+        const transcript = await transcribeMedia(localVideoPath, "video/mp4");
+        await job.updateProgress(30);
 
-        // Upload original
-        await job.updateProgress(35);
-        const uploaded = await uploadToCloudinary(tempFilePath, "video");
-        await job.updateProgress(50);
-
-        // AI Selection
+        // 3. AI Clip Selection
         const selectedClips = await selectClips(
           transcript,
           prompt,
           ratio,
-          uploaded.duration ?? 0
+          originalDuration
         );
-        await job.updateProgress(65);
+        await job.updateProgress(50);
 
-        // FFmpeg Clipping (Most Memory Heavy)
-        await job.updateProgress(70);
+        tempCopyPath = localVideoPath + ".copy.mp4";
+        fs.copyFileSync(localVideoPath, tempCopyPath);
+
+        await job.updateProgress(60);
         const generatedClips = await generateClips(tempCopyPath, selectedClips, ratio);
-        await job.updateProgress(85);
+        await job.updateProgress(80);
 
-        // Upload final clips
         const finalClips = await Promise.all(
           generatedClips.map(async (clip, i) => {
-            const result = await uploadToCloudinary(clip.localPath, "video", "clip-generator/clips");
+            const result = await uploadToCloudinary(
+              clip.localPath,
+              "video",
+              "clip-generator/clips"
+            );
 
-            // Delete local clip immediately after uploa
-            if (fs.existsSync(clip.localPath)) fs.unlinkSync(clip.localPath);
+            cleanupFile(clip.localPath); 
 
             return {
               url: result.url,
@@ -72,7 +113,7 @@ const startWorker = () => {
         await job.updateProgress(100);
 
         return {
-          original: uploaded,
+          original: { url: cloudinaryUrl, publicId },
           transcript,
           selectedClips,
           clips: finalClips,
@@ -82,25 +123,14 @@ const startWorker = () => {
         console.error(`💥 Job ${job.id} failed:`, err.message);
         throw err;
       } finally {
-        // Aggressive cleanup
-        [tempFilePath, tempCopyPath].forEach((path) => {
-          if (path && fs.existsSync(path)) {
-            try { fs.unlinkSync(path); } catch (_) {}
-          }
-        });
-
-        if (cleanupDir && fs.existsSync(cleanupDir)) {
-          try {
-            fs.rmSync(cleanupDir, { recursive: true, force: true });
-          } catch (_) {}
-        }
+        [localVideoPath, tempCopyPath].forEach(cleanupFile);
       }
     },
     {
       connection: bullRedis,
-      concurrency: 1,               
-      lockDuration: 600000,       
-      stalledInterval: 90000,       
+      concurrency: 1,
+      lockDuration: 600000,
+      stalledInterval: 90000,
       removeOnComplete: { age: 3600 },
       removeOnFail: { age: 86400 },
     }
@@ -109,7 +139,9 @@ const startWorker = () => {
   worker.on("ready", () => console.log("🟢 Worker ready"));
   worker.on("active", (job) => console.log(`⚡ Job ${job.id} started`));
   worker.on("completed", (job) => console.log(`🎉 Job ${job.id} completed`));
-  worker.on("failed", (job, err) => console.error(`💥 Job ${job?.id} failed:`, err.message));
+  worker.on("failed", (job, err) =>
+    console.error(`💥 Job ${job?.id} failed:`, err.message)
+  );
 
   workerInstance = worker;
   return worker;

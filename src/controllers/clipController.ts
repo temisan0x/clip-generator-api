@@ -1,58 +1,42 @@
 import type { Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import clipQueue from "../queue/clipQueue";
-import { Queue } from "bullmq";
-import getRedisClient from "../config/redis";
-import { downloadFromUrl } from "../utils/downloadFromUrl";
-
-import path from "path";
+import { uploadToCloudinary } from "../services/cloudinary";
 import fs from "node:fs";
-
-/**
- * Cleanup helpers
- */
-const cleanupUploadedFile = (filePath?: string) => {
-  if (!filePath) return;
-  if (!fs.existsSync(filePath)) return;
-
-  try {
-    fs.unlinkSync(filePath);
-    console.log(`🧹 Deleted upload: ${filePath}`);
-  } catch (err: any) {
-    console.error(`⚠️ Failed file cleanup:`, err.message);
-  }
-};
-
-const cleanupDirectory = (dirPath?: string) => {
-  if (!dirPath) return;
-  if (!fs.existsSync(dirPath)) return;
-
-  try {
-    fs.rmSync(dirPath, { recursive: true, force: true });
-    console.log(`🧹 Deleted directory: ${dirPath}`);
-  } catch (err: any) {
-    console.error(`⚠️ Failed dir cleanup:`, err.message);
-  }
-};
+import getRedisClient from "../config/redis";
+import { Queue } from "bullmq";
 
 function createClipController() {
-  /**
-   * Upload file endpoint
-   */
-  const uploadFile = async (req: Request, res: Response) => {
-    let jobQueued = false;
 
+  const cleanupFile = (filePath?: string) => {
+    if (!filePath || !fs.existsSync(filePath)) return;
+    try {
+      fs.unlinkSync(filePath);
+      console.log(`🧹 Deleted temp file: ${filePath}`);
+    } catch (err: any) {
+      console.error(`⚠️ Cleanup failed for ${filePath}:`, err.message);
+    }
+  };
+
+
+  const uploadFile = async (req: Request, res: Response) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file provided" });
       }
 
-      const { prompt, ratio } = req.body;
+      const { prompt, ratio = "9:16" } = req.body;
 
-      if (!prompt) {
-        cleanupUploadedFile(req.file.path);
+      if (!prompt?.trim()) {
+        cleanupFile(req.file.path);
         return res.status(400).json({ error: "Prompt is required" });
       }
+
+      console.log(`📤 Uploading ${req.file.originalname} to Cloudinary...`);
+
+      const cloudinaryResult = await uploadToCloudinary(req.file.path, "video");
+
+      cleanupFile(req.file.path);
 
       const jobId = uuidv4();
 
@@ -60,16 +44,17 @@ function createClipController() {
         "process-clip",
         {
           jobId,
-          tempFilePath: req.file.path,
+          cloudinaryUrl: cloudinaryResult.url,           
+          publicId: cloudinaryResult.publicId,
           mimeType: req.file.mimetype,
-          prompt,
-          ratio: ratio || "16:9",
-          cleanupDir: path.dirname(req.file.path),
+          prompt: prompt.trim(),
+          ratio,
+          originalDuration: cloudinaryResult.duration || 0,
         },
-        { jobId },
+        { jobId }
       );
 
-      jobQueued = true;
+      console.log(`✅ Job ${jobId} queued successfully`);
 
       return res.status(202).json({
         message: "Job queued successfully",
@@ -77,85 +62,27 @@ function createClipController() {
         statusUrl: `/api/job/${jobId}/status`,
       });
     } catch (error: any) {
-      if (!jobQueued) cleanupUploadedFile(req.file?.path);
+      if (req.file?.path) cleanupFile(req.file.path);
 
       console.error("Upload error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-  };
-
-  /**
-   * URL upload endpoint
-   */
-  const uploadFromUrl = async (req: Request, res: Response) => {
-    let filePath: string | undefined;
-    let cleanupDir: string | undefined;
-
-    try {
-      const { url, prompt, ratio = "9:16" } = req.body;
-
-      if (!url) {
-        return res.status(400).json({ error: "URL is required" });
-      }
-
-      if (!prompt) {
-        return res.status(400).json({ error: "Prompt is required" });
-      }
-
-      const urlDownloadsDir = path.join(process.cwd(), "temp", "url-downloads");
-
-      const downloaded = await downloadFromUrl(url, urlDownloadsDir);
-
-      if (!fs.existsSync(downloaded.filePath)) {
-        throw new Error(`Downloaded file not found at: ${downloaded.filePath}`);
-      }
-
-      console.log(`✅ File verified at: ${downloaded.filePath}`);
-
-      filePath = downloaded.filePath;
-      cleanupDir = downloaded.cleanupDir;
-
-      const jobId = uuidv4();
-
-      await clipQueue().add(
-        "process-clip",
-        {
-          jobId,
-          tempFilePath: filePath,
-          mimeType: downloaded.mimeType,
-          prompt,
-          ratio,
-          cleanupDir,
-        },
-        { jobId },
-      );
-
-      return res.status(202).json({
-        message: "Job queued successfully",
-        jobId,
-        statusUrl: `/api/job/${jobId}/status`,
+      return res.status(500).json({ 
+        error: error.message || "Failed to process upload" 
       });
-    } catch (error: any) {
-      cleanupUploadedFile(filePath);
-      cleanupDirectory(cleanupDir);
-
-      console.error("URL upload error:", error);
-      return res.status(500).json({ error: error.message });
     }
   };
+  const uploadFromUrl = async (req: Request, res: Response) => {
+    // TODO: Implement properly later or remove completely
+    return res.status(501).json({ 
+      error: "URL upload is temporarily disabled" 
+    });
+  };
 
-  /**
-   * Job status endpoint
-   */
+
   const getJobStatus = async (req: Request, res: Response) => {
     try {
-      const queue = new Queue("clip-processing", {
-        connection: getRedisClient(),
-      });
+      const queue = new Queue("clip-processing", { connection: getRedisClient() }); 
 
-      const jobId = Array.isArray(req.params.id)
-        ? req.params.id[0]
-        : req.params.id;
+      const jobId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
       const job = await queue.getJob(jobId);
 
@@ -182,7 +109,12 @@ function createClipController() {
     return res.status(200).json({ clips: [] });
   };
 
-  return { uploadFile, uploadFromUrl, getJobStatus, getClips };
+  return { 
+    uploadFile, 
+    uploadFromUrl, 
+    getJobStatus, 
+    getClips 
+  };
 }
 
 export { createClipController };

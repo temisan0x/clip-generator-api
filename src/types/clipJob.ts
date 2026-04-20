@@ -1,8 +1,9 @@
-export interface ClipJobData {
+export type ClipJobData = {
   jobId: string;
-  tempFilePath: string;
+  cloudinaryUrl: string;     
+  publicId: string;             
   mimeType: string;
   prompt: string;
   ratio: string;
-  cleanupDir?: string;
-}
+  originalDuration: number;
+};
