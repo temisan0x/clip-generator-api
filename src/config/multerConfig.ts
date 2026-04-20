@@ -14,7 +14,7 @@ function createUpload(uploadsDir: string) {
     filename: (_req, file, cb) => {
       const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${path.extname(file.originalname)}`;
       cb(null, unique);
-    },//just checking which works
+    },
   });
 
   return multer({

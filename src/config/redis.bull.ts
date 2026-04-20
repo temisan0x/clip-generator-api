@@ -1,6 +1,6 @@
 import { Redis } from "ioredis";
 
-const redisUrl = process.env.UPSTASH_REDIS_URL || process.env.REDIS_URL;
+const redisUrl = process.env.UPSTASH_REDIS_URL 
 
 if (!redisUrl) {
   throw new Error("Missing Redis URL");
