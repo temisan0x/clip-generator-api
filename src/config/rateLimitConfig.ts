@@ -1,22 +1,24 @@
 import rateLimit from "express-rate-limit";
 
-// 5 uploads per hour per IP
+const isDev = process.env.NODE_ENV !== "production";
+
 export const uploadLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-   max: process.env.NODE_ENV === "production" ? 5 : 100,
+  windowMs: 60 * 60 * 1000,
+  max: isDev ? 100 : 5,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false }, 
   message: {
     error: "Too many requests. You can generate up to 5 clips per hour.",
   },
 });
 
-// 20 status checks per minute per IP
 export const statusLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-   max: process.env.NODE_ENV === "production" ? 20 : 100,
+  windowMs: 60 * 1000,
+  max: isDev ? 200 : 20,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false }, 
   message: {
     error: "Too many status checks. Please slow down.",
   },

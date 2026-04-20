@@ -24,5 +24,6 @@ app.use("/api", createFileRouter());
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+app.set("trust proxy", 1)
 
 export default app;
