@@ -16,8 +16,8 @@ app.use(cors({
   methods: ["GET", "POST"],
 }));
 
-app.use(express.json({ limit: "100mb" }));
-app.use(express.urlencoded({ extended: true, limit: "200mb" }));
+app.use(express.json({ limit: "200mb" }));
+app.use(express.urlencoded({ extended: true, limit: "200mb", parameterLimit: 100000 }));
 // app.use(globalLimiter);
 app.use("/api", createFileRouter());
 
