@@ -1,5 +1,5 @@
 import { Worker, Job } from "bullmq";
-import bullRedis from "../config/redis.bull";
+import getBullRedis from "../config/redis.bull";
 import { uploadToCloudinary } from "../services/cloudinary";
 import { transcribeMedia } from "../services/transcribe";
 import { selectClips } from "../services/aiSelector";
@@ -124,7 +124,7 @@ const startWorker = () => {
       }
     },
     {
-      connection: bullRedis,
+      connection: getBullRedis(),
       concurrency: 1,
       lockDuration: 600000,
       stalledInterval: 90000,

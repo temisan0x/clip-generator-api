@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import bullRedis from "../config/redis.bull";
+import getBullRedis from "../config/redis.bull";
 import type { ClipJobData } from "../types/clipJob";
 
 let queue: Queue<ClipJobData> | null = null;
@@ -7,7 +7,7 @@ let queue: Queue<ClipJobData> | null = null;
 const getClipQueue = (): Queue<ClipJobData> => {
   if (!queue) {
     queue = new Queue<ClipJobData>("clip-processing", {
-      connection: bullRedis,
+      connection: getBullRedis(),
       defaultJobOptions: {
         attempts: 3,
         backoff: {
