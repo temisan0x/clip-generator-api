@@ -24,21 +24,21 @@ const startWorker = () => {
       let tempCopyPath: string | undefined;
 
       try {
-        // === Step 1: Transcription ===
+        //  Transcription
         await job.updateProgress(10);
         const transcript = await transcribeMedia(tempFilePath, mimeType);
         await job.updateProgress(25);
 
-        // === Step 2: Create copy for processing ===
+        // Create copy for processing
         tempCopyPath = tempFilePath + ".copy.mp4";
         fs.copyFileSync(tempFilePath, tempCopyPath);
 
-        // === Step 3: Upload original ===
+        // Upload original
         await job.updateProgress(35);
         const uploaded = await uploadToCloudinary(tempFilePath, "video");
         await job.updateProgress(50);
 
-        // === Step 4: AI Selection ===
+        // AI Selection
         const selectedClips = await selectClips(
           transcript,
           prompt,
@@ -47,17 +47,17 @@ const startWorker = () => {
         );
         await job.updateProgress(65);
 
-        // === Step 5: FFmpeg Clipping (Most Memory Heavy) ===
+        // FFmpeg Clipping (Most Memory Heavy)
         await job.updateProgress(70);
         const generatedClips = await generateClips(tempCopyPath, selectedClips, ratio);
         await job.updateProgress(85);
 
-        // === Step 6: Upload final clips ===
+        // Upload final clips
         const finalClips = await Promise.all(
           generatedClips.map(async (clip, i) => {
             const result = await uploadToCloudinary(clip.localPath, "video", "clip-generator/clips");
 
-            // Delete local clip immediately after upload
+            // Delete local clip immediately after uploa
             if (fs.existsSync(clip.localPath)) fs.unlinkSync(clip.localPath);
 
             return {
@@ -98,15 +98,14 @@ const startWorker = () => {
     },
     {
       connection: bullRedis,
-      concurrency: 1,               // Very important on low memory
-      lockDuration: 600000,         // 10 minutes (long jobs)
-      stalledInterval: 90000,       // 90 seconds
+      concurrency: 1,               
+      lockDuration: 600000,       
+      stalledInterval: 90000,       
       removeOnComplete: { age: 3600 },
       removeOnFail: { age: 86400 },
     }
   );
 
-  // Events
   worker.on("ready", () => console.log("🟢 Worker ready"));
   worker.on("active", (job) => console.log(`⚡ Job ${job.id} started`));
   worker.on("completed", (job) => console.log(`🎉 Job ${job.id} completed`));

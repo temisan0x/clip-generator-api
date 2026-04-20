@@ -15,7 +15,7 @@ interface SelectedClip {
 export const selectClips = async (
   transcript: TranscriptSegment[],
   prompt: string,
-  ratio: string,          
+  ratio: string,
   videoDuration: number
 ): Promise<SelectedClip[]> => {
   
@@ -23,34 +23,38 @@ export const selectClips = async (
     .map((s) => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s]: ${s.text}`)
     .join("\n");
 
-  const systemPrompt = `You are a professional short-form video editor for TikTok, Reels & YouTube Shorts.
+  const systemPrompt = `You are a world-class short-form video editor specializing in turning podcasts and documentaries into viral TikTok/Reels/YouTube Shorts.
 
-Rules (VERY IMPORTANT):
-- Video total duration is ONLY ${videoDuration.toFixed(1)} seconds.
-- NEVER create a clip longer than the actual video duration.
-- Each clip must have "end" ≤ ${videoDuration.toFixed(1)}
-- Make clips punchy: ideal length 8 - 18 seconds for this short video.
-- If user asks for 60-second clips but video is short, create the best possible short versions.
-- Target aspect ratio is ${ratio}. Adjust pacing and energy accordingly.
-- Return ONLY valid JSON array, no explanation, no markdown.
+STRICT RULES (follow exactly):
+- Maximum clip length is 12 seconds.
+- Each clip must be between 6 and 12 seconds.
+- Always return EXACTLY 5 clips, ranked from most interesting to least.
+- Focus ONLY on the most engaging, surprising, emotional, or insightful moments.
+- Prioritize strong hooks, punchlines, key revelations, emotional peaks, or controversial statements.
+- Never exceed the total video duration (${videoDuration.toFixed(1)} seconds).
+- Clips can slightly overlap if it makes sense.
+- Target aspect ratio: ${ratio} (keep energy high and pacing fast).
 
-Example output:
+Return ONLY a valid JSON array with this exact format, no explanation, no markdown, no extra text:
+
 [
-  {"start": 0, "end": 9, "description": "Strong hook"},
-  {"start": 7, "end": 16, "description": "Main punchline"}
+  {
+    "start": number,
+    "end": number,
+    "description": "Short catchy description of why this moment is great"
+  }
 ]`;
 
+  const userPrompt = `Transcript:\n${transcriptText}\n\nUser additional request: ${prompt || "Find the most interesting parts"}`;
+
   const response = await getGroqClient().chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: "llama-3.3-70b-versatile",   
     messages: [
       { role: "system", content: systemPrompt },
-      { 
-        role: "user", 
-        content: `Transcript:\n${transcriptText}\n\nUser request: ${prompt}` 
-      },
+      { role: "user", content: userPrompt },
     ],
-    temperature: 0.4,
-    max_tokens: 600,
+    temperature: 0.3,     
+    max_tokens: 800,
   });
 
   const raw = response.choices[0]?.message?.content?.trim() ?? "";
@@ -59,15 +63,17 @@ Example output:
   try {
     let clips: SelectedClip[] = JSON.parse(cleaned);
 
-    // Safety clamp
-    clips = clips.map(clip => ({
-      ...clip,
-      end: Math.min(Number(clip.end), videoDuration)
+    clips = clips.slice(0, 5).map(clip => ({
+      start: Math.max(0, Number(clip.start)),
+      end: Math.min(Number(clip.end), videoDuration),
+      description: String(clip.description || "Interesting moment")
     }));
 
-    return clips;
+    clips = clips.filter(clip => (clip.end - clip.start) >= 5);
+
+    return clips.length > 0 ? clips : []; 
   } catch (e) {
     console.error("JSON Parse Error from Groq:", raw);
-    throw new Error("Failed to parse clips from Groq");
+    throw new Error("Failed to parse clips from AI");
   }
 };

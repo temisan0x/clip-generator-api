@@ -12,11 +12,11 @@ export const downloadFromUrl = async (
   outputRootDir: string,
 ): Promise<{ filePath: string; mimeType: string; cleanupDir: string }> => {
 
-  if (/youtube\.com|youtu\.be/.test(url)) {
-    throw new Error(
-      "YouTube URLs are not currently supported. Please download the video and upload it as a file instead."
-    );
-  }
+  // if (/youtube\.com|youtu\.be/.test(url)) {
+  //   throw new Error(
+  //     "YouTube URLs are not currently supported. Please download the video and upload it as a file instead."
+  //   );
+  // }
 
   if (!fs.existsSync(outputRootDir)) {
     fs.mkdirSync(outputRootDir, { recursive: true });
