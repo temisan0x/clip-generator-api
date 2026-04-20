@@ -7,7 +7,7 @@ const app = express();
 app.set("trust proxy", 1); 
 
 app.use(cors({
-  origin: ["https://clipora.vercel.app", "http://localhost:3001"],
+  origin: ["https://clipaura.vercel.app", "http://localhost:3001"],
   methods: ["GET", "POST"],
 }));
 
