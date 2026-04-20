@@ -1,19 +1,22 @@
 services:
   - type: web
-    name: clip-generator-api
-    runtime: node
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    name: temiclips-api
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run start
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: PORT
-        value: 3000
+        value: 10000
+      - key: GROQ_API_KEY
+        sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: GROQ_API_KEY
-        sync: false
-      - key: UPSTASH_REDIS_URL
+      - key: REDIS_URL
         sync: false
