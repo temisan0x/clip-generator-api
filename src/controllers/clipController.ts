@@ -3,8 +3,6 @@ import { v4 as uuidv4 } from "uuid";
 import clipQueue from "../queue/clipQueue";
 import { uploadToCloudinary } from "../services/cloudinary";
 import fs from "node:fs";
-import getRedisClient from "../config/redis";
-import { Queue } from "bullmq";
 
 function createClipController() {
 
@@ -78,9 +76,10 @@ function createClipController() {
   };
 
 
+
   const getJobStatus = async (req: Request, res: Response) => {
     try {
-      const queue = new Queue("clip-processing", { connection: getRedisClient() }); 
+      const queue = clipQueue();
 
       const jobId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 

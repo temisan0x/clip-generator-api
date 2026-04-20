@@ -66,16 +66,13 @@ const startWorker = () => {
       let tempCopyPath: string | undefined;
 
       try {
-        // 1. Download video from Cloudinary
         await job.updateProgress(5);
         localVideoPath = await downloadFromCloudinary(cloudinaryUrl, job.id!);
 
-        // 2. Transcription
         await job.updateProgress(15);
         const transcript = await transcribeMedia(localVideoPath, "video/mp4");
         await job.updateProgress(30);
 
-        // 3. AI Clip Selection
         const selectedClips = await selectClips(
           transcript,
           prompt,
