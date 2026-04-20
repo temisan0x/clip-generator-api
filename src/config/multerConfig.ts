@@ -3,8 +3,8 @@ import type { FileFilterCallback } from "multer";
 import multer from "multer";
 import path from "path";
 
-const MAX_UPLOAD_SIZE_BYTES = 500 * 1024 * 1024; // 500MB max
-const INVALID_FILE_TYPE = "Invalid file type. Only images and videos are allowed.";
+const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
+const INVALID_FILE_TYPE = "Invalid file type. Only video and audio files are allowed.";
 
 function createUpload(uploadsDir: string) {
   const storage = multer.diskStorage({
@@ -26,8 +26,8 @@ function createUpload(uploadsDir: string) {
       cb: FileFilterCallback,
     ) => {
       if (
-        file.mimetype.startsWith("image/") ||
-        file.mimetype.startsWith("video/")
+        file.mimetype.startsWith("video/") ||
+        file.mimetype.startsWith("audio/")
       ) {
         cb(null, true);
       } else {
