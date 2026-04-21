@@ -60,12 +60,10 @@ function createClipController() {
         error: error.message || "Failed to process upload" 
       });
     } finally {
-      // This is the "Safety Net" that clears the /uploads folder 
-      // whether the code succeeds or crashes.
       if (req.file?.path) {
         cleanupFile(req.file.path); 
       }
-    } // <--- Added missing closing brace
+    } 
   };
 
   const uploadFromUrl = async (req: Request, res: Response) => {
