@@ -1,5 +1,6 @@
-// src/services/cloudinary.ts
 import { v2 as cloudinary } from "cloudinary";
+export { cloudinary }; 
+
 import dns from "node:dns";
 import https from "node:https";
 

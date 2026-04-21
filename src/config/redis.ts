@@ -35,7 +35,7 @@ const getRedisClient = (): Redis => {
     enableReadyCheck: true,
 
     connectTimeout: 15000,
-    keepAlive: 10000,
+    keepAlive: 30000, 
 
     family: 4,
 

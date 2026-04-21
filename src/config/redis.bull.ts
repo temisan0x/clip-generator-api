@@ -9,11 +9,13 @@ const getBullRedis = (): Redis => {
 
     connection = new Redis(redisUrl, {
       maxRetriesPerRequest: null,
-      enableReadyCheck: true,
-      lazyConnect: false,
+      enableReadyCheck: false, 
+      family: 4, 
+      tls: redisUrl.startsWith("rediss://")
+        ? { rejectUnauthorized: false }
+        : undefined,
       retryStrategy(times) {
-        if (times > 8) return null;
-        return Math.min(times * 500, 3000);
+        return Math.min(times * 500, 3000); 
       },
     });
 
@@ -22,9 +24,12 @@ const getBullRedis = (): Redis => {
       console.error("❌ Bull Redis error:", err.message);
     });
 
-    setInterval(() => {
-      connection!.ping().catch(() => {});
-    }, 4 * 60 * 1000);
+    setInterval(
+      () => {
+        connection!.ping().catch(() => {});
+      },
+      4 * 60 * 1000,
+    );
   }
 
   return connection;

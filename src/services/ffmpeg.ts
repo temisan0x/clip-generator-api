@@ -37,15 +37,17 @@ const cutClip = (
   return new Promise((resolve, reject) => {
     const filter = RATIO_FILTERS[ratio] ?? RATIO_FILTERS["16:9"];
 
-    ffmpeg(inputPath)
+  ffmpeg(inputPath)
       .setStartTime(start)
       .setDuration(duration)
       .videoFilters(filter)
       .audioCodec("aac")
       .videoCodec("libx264")
       .outputOptions([
-        "-preset fast", // faster encoding
-        "-crf 23", // good quality/size balance
+        "-preset superfast", 
+        "-crf 28",        
+        "-threads 1",    
+        "-movflags +faststart" 
       ])
       .output(outputPath)
       .on("end", () => resolve())

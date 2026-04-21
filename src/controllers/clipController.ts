@@ -5,7 +5,6 @@ import { uploadToCloudinary } from "../services/cloudinary";
 import fs from "node:fs";
 
 function createClipController() {
-
   const cleanupFile = (filePath?: string) => {
     if (!filePath || !fs.existsSync(filePath)) return;
     try {
@@ -16,7 +15,6 @@ function createClipController() {
     }
   };
 
-
   const uploadFile = async (req: Request, res: Response) => {
     try {
       if (!req.file) {
@@ -26,15 +24,12 @@ function createClipController() {
       const { prompt, ratio = "9:16" } = req.body;
 
       if (!prompt?.trim()) {
-        cleanupFile(req.file.path);
         return res.status(400).json({ error: "Prompt is required" });
       }
 
       console.log(`📤 Uploading ${req.file.originalname} to Cloudinary...`);
 
       const cloudinaryResult = await uploadToCloudinary(req.file.path, "video");
-
-      cleanupFile(req.file.path);
 
       const jobId = uuidv4();
 
@@ -60,29 +55,29 @@ function createClipController() {
         statusUrl: `/api/job/${jobId}/status`,
       });
     } catch (error: any) {
-      if (req.file?.path) cleanupFile(req.file.path);
-
       console.error("Upload error:", error);
       return res.status(500).json({ 
         error: error.message || "Failed to process upload" 
       });
-    }
+    } finally {
+      // This is the "Safety Net" that clears the /uploads folder 
+      // whether the code succeeds or crashes.
+      if (req.file?.path) {
+        cleanupFile(req.file.path); 
+      }
+    } // <--- Added missing closing brace
   };
+
   const uploadFromUrl = async (req: Request, res: Response) => {
-    // TODO: Implement properly later or remove completely
     return res.status(501).json({ 
       error: "URL upload is temporarily disabled" 
     });
   };
 
-
-
   const getJobStatus = async (req: Request, res: Response) => {
     try {
       const queue = clipQueue();
-
       const jobId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-
       const job = await queue.getJob(jobId);
 
       if (!job) {
