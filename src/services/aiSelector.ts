@@ -18,6 +18,8 @@ export const selectClips = async (
   ratio: string,
   videoDuration: number
 ): Promise<SelectedClip[]> => {
+   console.log("GROQ KEY in selector:", process.env.GROQ_API_KEY ? "loaded ✅" : "missing ❌");
+ 
   
   const transcriptText = transcript
     .map((s) => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s]: ${s.text}`)
