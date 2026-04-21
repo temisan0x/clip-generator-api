@@ -7,9 +7,13 @@ const app = express();
 app.set("trust proxy", 1); 
 
 app.use(cors({
-  origin: ["https://clipaura.vercel.app", "http://localhost:3001"],
-  methods: ["GET", "POST"],
+  origin: "https://clipaura.vercel.app",
+  methods: ["GET", "POST", "OPTIONS"],
+  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
+
+app.options('*', cors());
 
 app.use(express.json({ limit: "200mb" }));
 app.use(express.urlencoded({ extended: true, limit: "200mb", parameterLimit: 100000 }));
