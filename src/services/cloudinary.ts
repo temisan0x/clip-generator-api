@@ -1,4 +1,4 @@
-import { v2 as cloudinary } from "cloudinary";
+import { v2 as cloudinary, UploadApiResponse } from "cloudinary";
 export { cloudinary }; 
 
 import dns from "node:dns";
@@ -28,12 +28,13 @@ const cloudinaryIpv4Agent = new https.Agent({
 
 const getUploadErrorDetails = (error: any) => {
   const code = error?.error?.code || error?.code;
+  const httpCode = error?.http_code || error?.error?.http_code;
   const message =
     error?.error?.message ||
     error?.message ||
     (code ? `Cloudinary upload failed with code ${code}` : "Cloudinary upload failed");
 
-  return { code, message };
+  return { code, httpCode, message };
 };
 
 export const uploadToCloudinary = async (
@@ -43,11 +44,11 @@ export const uploadToCloudinary = async (
 ) => {
   console.log(`☁️ Uploading to Cloudinary: ${filePath} | Type: ${resourceType}`);
 
-  const maxAttempts = 3;
+  const maxAttempts = 4;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const result = await cloudinary.uploader.upload(filePath, {
+            const result = (await cloudinary.uploader.upload_large(filePath, {
         folder,
         resource_type: resourceType,
         timeout: 120000,
@@ -55,7 +56,7 @@ export const uploadToCloudinary = async (
         use_filename: true,
         unique_filename: true,
         agent: cloudinaryIpv4Agent,
-      });
+      })) as UploadApiResponse;
 
       console.log(`✅ Cloudinary upload successful: ${result.public_id}`);
       return {
@@ -66,11 +67,13 @@ export const uploadToCloudinary = async (
         resourceType: result.resource_type,
       };
     } catch (error: any) {
-      const { code, message } = getUploadErrorDetails(error);
-      const retryable = code ? RETRYABLE_ERROR_CODES.has(code) : false;
+      const { code, httpCode, message } = getUploadErrorDetails(error);
+      const retryable =
+        (code ? RETRYABLE_ERROR_CODES.has(code) : false) ||
+        (httpCode ? httpCode >= 500 : false);
 
       console.error(
-        `❌ Cloudinary Upload Failed (attempt ${attempt}/${maxAttempts}) | code=${code ?? "unknown"} | message=${message}`,
+        `❌ Cloudinary Upload Failed (attempt ${attempt}/${maxAttempts}) | code=${code ?? "unknown"} | http_code=${httpCode ?? "unknown"} | message=${message}`,
       );
 
       if (retryable && attempt < maxAttempts) {

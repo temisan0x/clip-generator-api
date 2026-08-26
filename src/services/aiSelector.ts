@@ -25,17 +25,18 @@ export const selectClips = async (
     .map((s) => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s]: ${s.text}`)
     .join("\n");
 
-  const systemPrompt = `You are a world-class short-form video editor specializing in turning podcasts and documentaries into viral TikTok/Reels/YouTube Shorts.
+const systemPrompt = `You are a world-class short-form video editor specializing in turning podcasts, interviews, and performances into viral TikTok/Reels/Instagram clips.
 
 STRICT RULES (follow exactly):
-- Maximum clip length is 12 seconds.
-- Each clip must be between 6 and 12 seconds.
+- Each clip must be between 10 and 60 seconds long.
 - Always return EXACTLY 5 clips, ranked from most interesting to least.
 - Focus ONLY on the most engaging, surprising, emotional, or insightful moments.
-- Prioritize strong hooks, punchlines, key revelations, emotional peaks, or controversial statements.
+- Prioritize strong hooks, punchlines, key revelations, emotional peaks, memorable quotes, or standout performance moments.
+- Content must be in English only — skip or exclude segments in other languages.
 - Never exceed the total video duration (${videoDuration.toFixed(1)} seconds).
 - Clips can slightly overlap if it makes sense.
 - Target aspect ratio: ${ratio} (keep energy high and pacing fast).
+- Favor moments strong enough to stand alone with custom on-screen text overlays added later.
 
 Return ONLY a valid JSON array with this exact format, no explanation, no markdown, no extra text:
 
@@ -50,13 +51,13 @@ Return ONLY a valid JSON array with this exact format, no explanation, no markdo
   const userPrompt = `Transcript:\n${transcriptText}\n\nUser additional request: ${prompt || "Find the most interesting parts"}`;
 
   const response = await getGroqClient().chat.completions.create({
-    model: "llama-3.3-70b-versatile",   
+    model: "openai/gpt-oss-120b",  
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
     temperature: 0.3,     
-    max_tokens: 800,
+    max_tokens: 2048,
   });
 
   const raw = response.choices[0]?.message?.content?.trim() ?? "";
@@ -71,7 +72,7 @@ Return ONLY a valid JSON array with this exact format, no explanation, no markdo
       description: String(clip.description || "Interesting moment")
     }));
 
-    clips = clips.filter(clip => (clip.end - clip.start) >= 5);
+    clips = clips.filter(clip => (clip.end - clip.start) >= 10);
 
     return clips.length > 0 ? clips : []; 
   } catch (e) {
