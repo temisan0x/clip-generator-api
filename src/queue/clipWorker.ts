@@ -57,9 +57,19 @@ const startWorker = () => {
         
         await job.updateProgress(35);
         const selectedClips = await selectClips(transcript, prompt, ratio, originalDuration);
-        
+
+        if (!selectedClips || selectedClips.length === 0) {
+          throw new Error("AI selector returned no valid clips to generate");
+        }
+
+        console.log(`🎬 AI selected ${selectedClips.length} clip windows for FFmpeg generation`);
         await job.updateProgress(60);
+
         const generatedClips = await generateClips(localVideoPath, selectedClips, ratio);
+
+        if (!generatedClips || generatedClips.length === 0) {
+          throw new Error("FFmpeg generated zero clips; the input may be unreadable or the clip windows were invalid");
+        }
 
         const finalClips = [];
         for (let i = 0; i < generatedClips.length; i++) {

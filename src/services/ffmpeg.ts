@@ -34,24 +34,37 @@ const cutClip = (
   duration: number,
   ratio: string,
 ): Promise<void> => {
+  const FFmpegTimeoutMs = 180_000;
+
   return new Promise((resolve, reject) => {
     const filter = RATIO_FILTERS[ratio] ?? RATIO_FILTERS["16:9"];
 
-  ffmpeg(inputPath)
+    const timer = setTimeout(() => {
+      reject(new Error(`FFmpeg timed out after ${FFmpegTimeoutMs}ms while processing ${inputPath}`));
+    }, FFmpegTimeoutMs);
+
+    console.log(`🎬 FFmpeg start: ${start}s for ${duration}s -> ${outputPath}`);
+
+    ffmpeg(inputPath)
       .setStartTime(start)
       .setDuration(duration)
       .videoFilters(filter)
       .audioCodec("aac")
       .videoCodec("libx264")
       .outputOptions([
-        "-preset superfast", 
-        "-crf 28",        
-        "-threads 1",    
-        "-movflags +faststart" 
+        "-preset superfast",
+        "-crf 28",
+        "-threads 1",
+        "-movflags +faststart",
       ])
       .output(outputPath)
-      .on("end", () => resolve())
+      .on("end", () => {
+        clearTimeout(timer);
+        console.log(`✅ FFmpeg success: ${outputPath}`);
+        resolve();
+      })
       .on("error", (err: Error) => {
+        clearTimeout(timer);
         console.error("FFmpeg Error:", err.message);
         reject(err);
       })
@@ -73,14 +86,20 @@ export const generateClips = async (
 
   const results: ClipOutput[] = [];
 
+  console.log(`🔧 Starting FFmpeg generation for ${clips.length} selected clips`);
+
   for (const [index, clip] of clips.entries()) {
     const clipDuration = clip.end - clip.start;
-    if (clipDuration <= 0) continue;
+    if (clipDuration <= 0) {
+      console.warn(`Skipping invalid clip window at index ${index}: ${clip.start} -> ${clip.end}`);
+      continue;
+    }
 
     const fileName = `clip-${Date.now()}-${index}-${uuidv4().slice(0, 8)}.mp4`;
     const outputPath = path.join(outputDir, fileName);
 
     try {
+      console.log(`📦 Generating clip ${index + 1}/${clips.length}: ${clip.start}s to ${clip.end}s`);
       await cutClip(inputPath, outputPath, clip.start, clipDuration, ratio);
 
       results.push({
