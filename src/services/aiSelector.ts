@@ -90,12 +90,28 @@ Return ONLY a valid JSON array with this exact format, no explanation, no markdo
     const fallbackClips = transcript
       .filter((segment) => segment.end > segment.start)
       .slice(0, 5)
-      .map((segment, index) => ({
-        start: Math.max(0, Number(segment.start)),
-        end: Math.min(Math.max(Number(segment.end), Number(segment.start) + 5), videoDuration),
-        description: `Highlight ${index + 1}: ${segment.text.trim() || "Interesting moment"}`,
-      }))
-      .filter((clip) => clip.end - clip.start >= 5);
+      .map((segment, index) => {
+        const segmentStart = Number(segment.start);
+        const segmentEnd = Number(segment.end);
+        const fallbackNeeded = !Number.isFinite(segmentEnd) || segmentEnd < segmentStart + 10;
+
+        if (fallbackNeeded) {
+          console.warn("Fallback clip timestamp repair triggered; Groq returned invalid/short segment end.", {
+            segment,
+            segmentStart,
+            segmentEnd,
+            minRequired: segmentStart + 10,
+            videoDuration,
+          });
+        }
+
+        return {
+          start: Math.max(0, segmentStart),
+          end: Math.min(Math.max(segmentEnd, segmentStart + 10), videoDuration),
+          description: `Highlight ${index + 1}: ${segment.text.trim() || "Interesting moment"}`,
+        };
+      })
+      .filter((clip) => clip.end - clip.start >= 10);
 
     if (fallbackClips.length > 0) {
       return fallbackClips.slice(0, 5);
