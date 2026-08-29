@@ -27,17 +27,24 @@ export const selectClips = async (
     .map((s) => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s]: ${s.text}`)
     .join("\n");
 
-  const systemPrompt = `You are a world-class short-form video editor specializing in turning livestream events, fight press conferences, and high-drama broadcasts into viral TikTok/YouTube Shorts/Instagram clips.
+    const systemPrompt = `You are a world-class short-form video editor specializing in turning livestream events, fight press conferences, and high-drama broadcasts into viral TikTok/YouTube Shorts/Instagram clips.
 
-STRICT RULES (follow exactly):
-- Each clip must be between 10 and 35 seconds long to maximize completion rate metrics.
-- Always return EXACTLY 5 clips, ranked from most viral potential to least.
-- Prioritize high-conflict moments: ragebaits, severe call-outs, chaotic interruptions, crowd-pleasing punchlines, or intense eye contact/staredowns.
-- Ensure the start timestamp captures the build-up to the conflict, and the end timestamp leaves viewers wanting to see the immediate aftermath.
-- Target aspect ratio: ${ratio}. The final output will feature a blurred canvas background with an official match-up banner graphic stacked at the top. 
-- Ensure the moments selected keep critical on-screen subjects natively centered so corner watermarks, sponsor logos, and QR codes remain perfectly untouched and visible within the frame.
+STRICT TIMING RULES (follow exactly):
+- Each clip must combine multiple consecutive dialogue segments so that the length is strictly between 10 and 35 seconds long to maximize completion rate metrics.
+- Always return EXACTLY 5 clips, ranked from most viral potential to least. If the transcript contains no clean segments meeting the content criteria, return fewer than 5 clips rather than forcing a match.
+- Target aspect ratio: ${ratio}.
 
-For each clip, you must generate a high-retention text hook optimized for clean, white, outlined overlay text. The hook must use high-engagement, modern internet slang (e.g., "RAGEBAITED", "CAUGHT LACKING", "HE REALLY SAID THIS", "PURE CHAOS") in ALL CAPS with relatable emojis.
+CONTENT CRITERIA:
+- Find the highest-energy, entertaining segments in this transcript — think sports rivalry banter, comedic roasts, over-the-top trash talk, or crowd-hyping moments. Clips should feel like a fun highlight reel, not a news story.
+- Each clip needs a clear build-up and a punchy, funny conclusion.
+
+STRICT SAFETY FILTER (DO NOT select any moment involving):
+- Allegations of abuse, violence, or criminal conduct.
+- Serious accusations against a named individual (e.g., words like racist, supremacist, etc. must be skipped).
+- Content referencing minors in any context.
+- Anything that isn't clearly comedic, competitive banter framed as entertainment.
+
+For each clip, generate a short, clean, descriptive summary sentence of what happens during that scene to be used as a filename. Do NOT use all caps, do NOT use punctuation, and do NOT include any emojis or special symbols. Keep it to alphanumeric characters and spaces only.
 
 Return ONLY a valid JSON array with this exact format, no explanation, no markdown, no extra text:
 
@@ -45,9 +52,10 @@ Return ONLY a valid JSON array with this exact format, no explanation, no markdo
   {
     "start": number,
     "end": number,
-    "description": "ALL CAPS TEXT HOOK WITH EMOJIS FOR ON-SCREEN OVERLAY 💀😂"
+    "description": "A short clean descriptive sentence summarizing the scene action"
   }
 ]`;
+
 
   const userPrompt = `Transcript:\n${transcriptText}\n\nUser additional request: ${prompt || "Find the most interesting parts"}`;
 
@@ -73,9 +81,27 @@ Return ONLY a valid JSON array with this exact format, no explanation, no markdo
       description: String(clip.description || "Interesting moment"),
     }));
 
-    clips = clips.filter((clip) => clip.end - clip.start >= 10);
+    const validClips = clips.filter((clip) => clip.end - clip.start >= 10);
 
-    return clips.length > 0 ? clips : [];
+    if (validClips.length > 0) {
+      return validClips.slice(0, 5);
+    }
+
+    const fallbackClips = transcript
+      .filter((segment) => segment.end > segment.start)
+      .slice(0, 5)
+      .map((segment, index) => ({
+        start: Math.max(0, Number(segment.start)),
+        end: Math.min(Math.max(Number(segment.end), Number(segment.start) + 5), videoDuration),
+        description: `Highlight ${index + 1}: ${segment.text.trim() || "Interesting moment"}`,
+      }))
+      .filter((clip) => clip.end - clip.start >= 5);
+
+    if (fallbackClips.length > 0) {
+      return fallbackClips.slice(0, 5);
+    }
+
+    return [];
   } catch (e) {
     console.error("JSON Parse Error from Groq:", raw);
     throw new Error("Failed to parse clips from AI");

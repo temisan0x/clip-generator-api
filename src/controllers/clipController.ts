@@ -4,6 +4,9 @@ import clipQueue from "../queue/clipQueue";
 import { uploadToCloudinary } from "../services/cloudinary";
 import fs from "node:fs";
 
+const MAX_VIDEO_SIZE_MB = 25;
+const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
+
 function createClipController() {
   const cleanupFile = (filePath?: string) => {
     if (!filePath || !fs.existsSync(filePath)) return;
@@ -19,6 +22,13 @@ function createClipController() {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file provided" });
+      }
+
+      const fileSizeBytes = fs.statSync(req.file.path).size;
+      if (fileSizeBytes > MAX_VIDEO_SIZE_BYTES) {
+        return res.status(400).json({
+          error: `Video too large — max supported size is ${MAX_VIDEO_SIZE_MB}MB.`,
+        });
       }
 
       const { prompt, ratio = "9:16" } = req.body;
