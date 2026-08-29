@@ -1,4 +1,4 @@
-import { v2 as cloudinary, UploadApiResponse } from "cloudinary";
+import { v2 as cloudinary, UploadApiOptions, UploadApiResponse } from "cloudinary";
 export { cloudinary }; 
 
 import dns from "node:dns";
@@ -37,6 +37,35 @@ const getUploadErrorDetails = (error: any) => {
   return { code, httpCode, message };
 };
 
+const uploadLarge = (filePath: string, options: UploadApiOptions) =>
+  new Promise<UploadApiResponse>((resolve, reject) => {
+    let settled = false;
+    const complete = (error?: unknown, result?: UploadApiResponse) => {
+      if (settled) return;
+      settled = true;
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      if (!result) {
+        reject(new Error("Cloudinary upload completed without a response"));
+        return;
+      }
+
+      resolve(result);
+    };
+
+    // With cloudinary@2.9.0, a local-file upload_large call returns an upload
+    // stream. Its final merged response is delivered to this callback, not as
+    // the awaited return value.
+    const upload = cloudinary.uploader.upload_large(filePath, options, complete);
+    if ("on" in upload) {
+      upload.on("error", (error: Error) => complete(error));
+    }
+  });
+
 export const uploadToCloudinary = async (
   filePath: string,
   resourceType: "video" | "auto" = "auto",
@@ -48,7 +77,7 @@ export const uploadToCloudinary = async (
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-            const result = (await cloudinary.uploader.upload_large(filePath, {
+      const result = await uploadLarge(filePath, {
         folder,
         resource_type: resourceType,
         timeout: 120000,
@@ -56,7 +85,7 @@ export const uploadToCloudinary = async (
         use_filename: true,
         unique_filename: true,
         agent: cloudinaryIpv4Agent,
-      })) as UploadApiResponse;
+      });
 
       console.log(`✅ Cloudinary upload successful: ${result.public_id}`);
       return {
