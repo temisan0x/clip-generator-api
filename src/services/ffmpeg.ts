@@ -2,7 +2,6 @@ import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 import path from "path";
 import fs from "fs";
-import { v4 as uuidv4 } from "uuid";
 
 // point to bundled ffmpeg binary
 ffmpeg.setFfmpegPath(ffmpegPath!);
@@ -26,6 +25,14 @@ const RATIO_FILTERS: Record<string, string> = {
   "4:5": "crop=ih*4/5:ih,scale=1080:1350",
   "16:9": "scale=1920:1080",
 };
+
+const slugify = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .slice(0, 60);
 
 const cutClip = (
   inputPath: string,
@@ -76,6 +83,7 @@ export const generateClips = async (
   inputPath: string,
   clips: SelectedClip[],
   ratio: string,
+  jobId: string, 
 ): Promise<ClipOutput[]> => {
   const outputDir = path.join(process.cwd(), "temp", "clips");
 
@@ -95,11 +103,12 @@ export const generateClips = async (
       continue;
     }
 
-    const fileName = `clip-${Date.now()}-${index}-${uuidv4().slice(0, 8)}.mp4`;
+    const slug = slugify(clip.description || `clip-${index + 1}`);
+    const fileName = `${slug}-${Math.round(clip.start)}.mp4`;
     const outputPath = path.join(outputDir, fileName);
 
     try {
-      console.log(`📦 Generating clip ${index + 1}/${clips.length}: ${clip.start}s to ${clip.end}s`);
+      console.log(`📦 Generating clip ${index + 1}/${clips.length}: ${clip.start}s to ${clip.end}s -> ${fileName}`);
       await cutClip(inputPath, outputPath, clip.start, clipDuration, ratio);
 
       results.push({
