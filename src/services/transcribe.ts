@@ -21,10 +21,10 @@ const compressForTranscription = async (inputPath: string): Promise<string> => {
     ffmpeg(inputPath)
       .outputOptions([
         "-vn",
-        "-ac 1",
-        "-ar 16000",
-        "-b:a 64k",
-        "-f wav",
+        "-ac", "1",
+        "-ar", "16000",
+        "-b:a", "64k",
+        "-f", "wav",
       ])
       .output(outputPath)
       .on("end", () => resolve())

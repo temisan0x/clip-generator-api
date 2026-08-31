@@ -3,7 +3,7 @@ import type { FileFilterCallback } from "multer";
 import multer from "multer";
 import path from "path";
 
-const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
 const INVALID_FILE_TYPE = "Invalid file type. Only video and audio files are allowed.";
 
 function createUpload(uploadsDir: string) {

@@ -59,10 +59,10 @@ const cutClip = (
       .audioCodec("aac")
       .videoCodec("libx264")
       .outputOptions([
-        "-preset superfast",
-        "-crf 28",
-        "-threads 1",
-        "-movflags +faststart",
+        "-preset", "superfast",
+        "-crf", "28",
+        "-threads", "1",
+        "-movflags", "+faststart",
       ])
       .output(outputPath)
       .on("end", () => {

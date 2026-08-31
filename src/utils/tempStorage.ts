@@ -30,7 +30,7 @@ const upload = multer({
       cb(new Error("Unsupported file type. Upload a video or audio file."));
     }
   },
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB max
 });
 
 export default upload;

@@ -83,13 +83,16 @@ Return ONLY a valid JSON array with this exact format, no explanation, no markdo
 
     const validClips = clips.filter((clip) => clip.end - clip.start >= 10);
 
-    if (validClips.length > 0) {
+    // If AI returned 5 or more valid clips, return the top 5.
+    if (validClips.length >= 5) {
       return validClips.slice(0, 5);
     }
 
-    const fallbackClips = transcript
+    // If AI returned fewer than 5, attempt to augment with transcript-based fallbacks.
+    const needed = Math.max(0, 5 - validClips.length);
+
+    const fallbackCandidates = transcript
       .filter((segment) => segment.end > segment.start)
-      .slice(0, 5)
       .map((segment, index) => {
         const segmentStart = Number(segment.start);
         const segmentEnd = Number(segment.end);
@@ -109,13 +112,17 @@ Return ONLY a valid JSON array with this exact format, no explanation, no markdo
           start: Math.max(0, segmentStart),
           end: Math.min(Math.max(segmentEnd, segmentStart + 10), videoDuration),
           description: `Highlight ${index + 1}: ${segment.text.trim() || "Interesting moment"}`,
-        };
+        } as SelectedClip;
       })
       .filter((clip) => clip.end - clip.start >= 10);
 
-    if (fallbackClips.length > 0) {
-      return fallbackClips.slice(0, 5);
-    }
+    // Exclude fallback clips that duplicate existing AI-selected starts
+    const existingStarts = new Set(validClips.map((c) => Math.round(c.start)));
+    const uniqueFallbacks = fallbackCandidates.filter((c) => !existingStarts.has(Math.round(c.start)));
+
+    const augmented = [...validClips, ...uniqueFallbacks].slice(0, 5);
+
+    if (augmented.length > 0) return augmented;
 
     return [];
   } catch (e) {

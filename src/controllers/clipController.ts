@@ -3,9 +3,40 @@ import { v4 as uuidv4 } from "uuid";
 import clipQueue from "../queue/clipQueue";
 import { uploadToCloudinary } from "../services/cloudinary";
 import fs from "node:fs";
+import path from "path";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegPath from "ffmpeg-static";
 
-const MAX_VIDEO_SIZE_MB = 25;
+ffmpeg.setFfmpegPath(ffmpegPath!);
+
+const MAX_VIDEO_SIZE_MB = Number(process.env.MAX_VIDEO_SIZE_MB ?? "25");
 const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
+
+const probeFile = (filePath: string): Promise<boolean> => {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(filePath, (err, data) => {
+      if (err || !data || !Array.isArray(data.streams) || data.streams.length === 0) {
+        return resolve(false);
+      }
+      resolve(true);
+    });
+  });
+};
+
+const transcodeToMp4 = (input: string): Promise<string> => {
+  const dir = path.dirname(input);
+  const base = path.basename(input, path.extname(input));
+  const out = path.join(dir, `${base}-fixed.mp4`);
+
+  return new Promise((resolve, reject) => {
+    ffmpeg(input)
+      .outputOptions(["-c:v libx264", "-preset superfast", "-crf 23", "-c:a aac", "-movflags +faststart"])
+      .output(out)
+      .on("end", () => resolve(out))
+      .on("error", (err) => reject(err))
+      .run();
+  });
+};
 
 function createClipController() {
   const cleanupFile = (filePath?: string) => {
@@ -37,9 +68,44 @@ function createClipController() {
         return res.status(400).json({ error: "Prompt is required" });
       }
 
+      const originalUploadPath = req.file.path;
+      let activeUploadPath = originalUploadPath;
+
+      console.log(`📤 Probing uploaded file: ${originalUploadPath}`);
+      const probed = await probeFile(originalUploadPath);
+      if (!probed) {
+        console.log("⚠️ Probe failed — attempting transcode before upload");
+        try {
+          const fixed = await transcodeToMp4(originalUploadPath);
+          activeUploadPath = fixed;
+          console.log(`✅ Transcode complete, will upload: ${activeUploadPath}`);
+        } catch (err: any) {
+          console.error("Transcode failed:", err?.message || err);
+          return res.status(400).json({ error: "Unsupported video format or file" });
+        }
+      }
+
       console.log(`📤 Uploading ${req.file.originalname} to Cloudinary...`);
 
-      const cloudinaryResult = await uploadToCloudinary(req.file.path, "video");
+      let cloudinaryResult;
+      try {
+        cloudinaryResult = await uploadToCloudinary(activeUploadPath, "video");
+      } catch (err: any) {
+        console.error("Upload error, attempting fallback transcode:", err?.message || err);
+        // If we already tried a transcode, fail; otherwise try transcode and retry once.
+        if (activeUploadPath === originalUploadPath) {
+          try {
+            const fixed = await transcodeToMp4(originalUploadPath);
+            activeUploadPath = fixed;
+            cloudinaryResult = await uploadToCloudinary(activeUploadPath, "video");
+          } catch (err2: any) {
+            console.error("Retry transcode/upload failed:", err2?.message || err2);
+            throw err2;
+          }
+        } else {
+          throw err;
+        }
+      }
 
       const jobId = uuidv4();
 
@@ -70,8 +136,15 @@ function createClipController() {
         error: error.message || "Failed to process upload" 
       });
     } finally {
-      if (req.file?.path) {
-        cleanupFile(req.file.path); 
+      // clean up both the original upload and any transcoded file
+      try {
+        const original = req.file?.path;
+        if (original) cleanupFile(original);
+        // if we produced a transcoded file it will have -fixed.mp4 suffix
+        const fixed = original ? path.join(path.dirname(original), `${path.basename(original, path.extname(original))}-fixed.mp4`) : null;
+        if (fixed && fixed !== original) cleanupFile(fixed);
+      } catch (e: any) {
+        console.error("Cleanup error:", e?.message || e);
       }
     } 
   };
